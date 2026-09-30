@@ -1,0 +1,30 @@
+{
+  "name": "jennifer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Jennifer — Bruno's persistent executive assistant (backend foundation, policy engine, action pipeline and local simulator)",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "tsx src/api/main.ts",
+    "simulate": "tsx src/simulator/demo.ts"
+  },
+  "dependencies": {
+    "fastify": "^5.12.5",
+    "luxon": "^3.7.2",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.7.6",
+    "@types/node": "^26.6.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}
