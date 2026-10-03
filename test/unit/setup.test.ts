@@ -9,7 +9,9 @@ describe('Week 1 — inventory and operating contract', () => {
     const inv = InventorySchema.parse(JSON.parse(readFileSync('config/inventory.json', 'utf8')));
     expect(inv.phone).toMatchObject({ model: 'iPhone 17 Pro Max', os: 'iOS', carrier: 'AT&T' });
     const missing = inventoryBlockers(inv).map((b) => b.missing);
-    expect(missing).toEqual(expect.arrayContaining([expect.stringMatching(/iOS version/), expect.stringMatching(/Email accounts/), expect.stringMatching(/Apple Developer Program/)]));
+    expect(inv.phone.osVersion).toBe('26.6.1');
+    expect(missing).toEqual(expect.arrayContaining([expect.stringMatching(/Phone number/), expect.stringMatching(/Apple Developer Program/)]));
+    expect(missing.some((m) => /iOS version|Email accounts/.test(m))).toBe(false);
     expect(missing.some((m) => /browser-assistant/.test(m))).toBe(false);
   });
 

@@ -222,7 +222,8 @@ export class ActionService {
   /** Reconcile every action whose outcome is unknown (timeouts, crash recovery). */
   async recoverUnknown(): Promise<ActionIntent[]> {
     const out: ActionIntent[] = [];
-    for (const i of this.list({ state: 'unknown' })) out.push(await this.execute(i.id));
+    const now = this.d.clock.now().getTime();
+    for (const i of this.list({ state: 'unknown' })) if (!i.nextAttemptAt || i.nextAttemptAt.getTime() <= now) out.push(await this.execute(i.id));
     return out;
   }
 
@@ -303,7 +304,20 @@ export class ActionService {
 
   private async reconcile(intent: ActionIntent): Promise<ActionIntent> {
     const handler = this.handler(intent.type);
-    const r = await handler.reconcile(intent);
+    let r;
+    try {
+      r = await handler.reconcile(intent);
+    } catch (e) {
+      // Can't reach the provider: stay unknown and look again later. Never resend blind.
+      intent.nextAttemptAt = new Date(this.d.clock.now().getTime() + 60_000);
+      intent.stateReason = `reconciliation failed: ${(e as Error).message}`;
+      return intent;
+    }
+    if (r.found === 'pending') {
+      intent.nextAttemptAt = new Date(this.d.clock.now().getTime() + 30_000);
+      intent.stateReason = 'waiting for the provider to show the result';
+      return intent;
+    }
     if (r.found) {
       intent.receipt = { ...r.receipt, observedAt: this.d.clock.now() };
       this.transition(intent, 'provider_accepted', 'system', 'reconciled: provider has the message');

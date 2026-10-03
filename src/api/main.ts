@@ -1,10 +1,13 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { createDurableJennifer } from '../app.js';
 import { buildServer } from './server.js';
 import { seedSimulator } from '../simulator/seed.js';
 import { pgDb, pgliteDb } from '../db/db.js';
 import { IdentityService } from '../identity/identity.js';
 import { systemClock } from '../core/util.js';
+import { LocalKeyWrapper, Vault } from '../identity/vault.js';
+import { GmailService } from '../connectors/gmail/service.js';
 
 const env = process.env.JENNIFER_ENV ?? 'development';
 const dev = env === 'development';
@@ -17,7 +20,32 @@ else if (dev) {
   db = await pgliteDb('.data/pglite');
 } else throw new Error('DATABASE_URL is required outside development');
 
-const j = await createDurableJennifer({ db, clock: systemClock });
+// Sandbox: until Bruno lifts it, sends may only go to these addresses (comma-separated).
+const sandboxRecipients = process.env.JENNIFER_EMAIL_SANDBOX?.split(',').map((a) => a.trim()).filter(Boolean);
+const j = await createDurableJennifer({ db, clock: systemClock, sandboxRecipients: sandboxRecipients?.length ? sandboxRecipients : undefined });
+
+// Vault master key: env in staging/production; generated once into .data/ in development.
+let vaultKeys = process.env.JENNIFER_VAULT_KEYS;
+if (!vaultKeys && dev) {
+  const keyFile = '.data/vault.key';
+  if (!existsSync(keyFile)) writeFileSync(keyFile, `1:${randomBytes(32).toString('base64')}`, { mode: 0o600 });
+  vaultKeys = readFileSync(keyFile, 'utf8').trim();
+}
+const vault = vaultKeys ? new Vault(db, LocalKeyWrapper.fromEnv(vaultKeys)) : undefined;
+const gmail = vault
+  ? new GmailService({
+      db,
+      vault,
+      clock: j.clock,
+      audit: j.audit,
+      capabilities: j.capabilities,
+      ownerId: j.ownerId,
+      environment: env,
+      onEmail: async (email) => void (await j.inbound.handle(email, { autoDraft: true })),
+      registerConnector: (c) => j.emailConnectors.set(c.id, c),
+    })
+  : undefined;
+if (gmail) await gmail.resume().catch((e) => console.error('Gmail resume failed:', (e as Error).message));
 const ownerToken = j.config.apiToken ?? (dev ? 'dev-owner-token-change-me' : undefined);
 if (!ownerToken) throw new Error('JENNIFER_API_TOKEN (bootstrap/break-glass token) is required outside development');
 const developerToken = process.env.JENNIFER_DEVELOPER_TOKEN;
@@ -29,13 +57,15 @@ const identity = new IdentityService(db, j.clock, j.audit, {
   origins: (process.env.JENNIFER_ORIGINS ?? `http://localhost:${port}`).split(','),
 });
 
-if (dev && j.contacts.list(j.ownerId).length === 0) await seedSimulator(j);
+// Simulator data is opt-in so it never mixes with a real connected inbox.
+if (dev && process.env.JENNIFER_SEED === '1' && j.contacts.list(j.ownerId).length === 0) await seedSimulator(j);
 
 const app = buildServer(j, {
   tokens: { [ownerToken]: 'owner', ...(developerToken ? { [developerToken]: 'developer' as const } : {}) },
   webhookSecret: j.config.webhookSecret ?? (dev ? 'dev-webhook-secret-change-me' : undefined),
   logger: true,
   identity,
+  gmail,
 });
 
 // Worker loop stand-in until the durable workflow engine lands (Week 6):

@@ -30,6 +30,8 @@ export interface InboundEmail {
   occurredAt: Date;
   space: Space;
   attachmentIds?: string[];
+  /** Attachment metadata from the provider; bytes stay in provider/object storage until scanned. */
+  attachmentMeta?: Array<{ filename: string; contentType: string; size: number; storageRef: string }>;
 }
 
 export interface InboundOutcome {
@@ -131,7 +133,22 @@ export class InboundProcessor {
       subject: email.subject,
       body: email.body,
       headers: email.headers,
-      attachmentIds: email.attachmentIds ?? [],
+      attachmentIds: [
+        ...(email.attachmentIds ?? []),
+        ...(email.attachmentMeta ?? []).map(
+          (a) =>
+            this.d.conversations.addAttachment({
+              ownerId: this.d.ownerId,
+              space: email.space,
+              filename: a.filename,
+              mimeType: a.contentType,
+              sizeBytes: a.size,
+              storageRef: a.storageRef,
+              scanStatus: 'pending',
+              sensitivity: 'normal',
+            }).id,
+        ),
+      ],
       occurredAt: email.occurredAt,
       flags,
     });

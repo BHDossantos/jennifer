@@ -7,6 +7,8 @@ export interface OutboundMessage {
   conversationId: string;
   providerThreadId?: string;
   inReplyToProviderMessageId?: string;
+  /** RFC 5322 threading headers (Message-IDs without angle brackets). */
+  replyHeaders?: { inReplyTo: string; references: string[] };
   to: string[];
   cc: string[];
   bcc: string[];
@@ -28,4 +30,6 @@ export interface MessagingConnector {
   send(msg: OutboundMessage): Promise<SendResult>;
   /** Reconciliation: look up what the provider actually has for this key. */
   findByIdempotencyKey(accountId: string, key: string): Promise<{ providerMessageId: string } | undefined>;
+  /** How long after a send attempt a reconciliation miss still counts as "not yet visible". */
+  readonly reconcileGraceMs?: number;
 }

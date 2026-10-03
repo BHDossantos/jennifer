@@ -105,6 +105,6 @@ export interface ActionHandler<P = unknown> {
   type: ActionType;
   resolve(intent: ActionIntent<P>): ResolvedAction;
   perform(intent: ActionIntent<P>): Promise<PerformResult>;
-  /** After an ambiguous result: what does the provider actually have? */
-  reconcile(intent: ActionIntent<P>): Promise<{ found: true; receipt: Omit<ActionReceipt, 'observedAt'> } | { found: false }>;
+  /** After an ambiguous result: what does the provider actually have? pending: the provider may not show the result yet; reconcile again later instead of resending. */
+  reconcile(intent: ActionIntent<P>): Promise<{ found: true; receipt: Omit<ActionReceipt, 'observedAt'> } | { found: false } | { found: 'pending' }>;
 }

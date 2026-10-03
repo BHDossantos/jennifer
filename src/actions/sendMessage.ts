@@ -1,4 +1,5 @@
 import type { Space } from '../core/types.js';
+import { type Clock, systemClock } from '../core/util.js';
 import type { ContactDirectory } from '../contacts/contacts.js';
 import type { ConversationStore } from '../events/conversations.js';
 import type { MessagingConnector } from '../connectors/connector.js';
@@ -32,6 +33,11 @@ export class SendMessageHandler implements ActionHandler<SendMessagePayload> {
     private conversations: ConversationStore,
     private connectors: Map<string, MessagingConnector>,
     private capabilities: CapabilityRegistry,
+    private opts: {
+      clock?: Clock;
+      /** Sandbox mode: hard-block every recipient not on this list (first live tests). */
+      sandboxRecipients?: string[];
+    } = {},
   ) {}
 
   resolve(intent: ActionIntent<SendMessagePayload>): ResolvedAction {
@@ -42,6 +48,11 @@ export class SendMessageHandler implements ActionHandler<SendMessagePayload> {
     const contactIds: string[] = [];
 
     if (addresses.length === 0) violations.push('no recipients');
+    if (this.opts.sandboxRecipients) {
+      const allowed = new Set(this.opts.sandboxRecipients.map((a) => a.toLowerCase()));
+      const blocked = addresses.filter((a) => !allowed.has(a));
+      if (blocked.length) violations.push(`sandbox mode: ${blocked.join(', ')} not on the test recipient list`);
+    }
     if (!this.capabilities.can(intent.connectorId, 'send')) violations.push(`connector ${intent.connectorId} cannot send (disconnected or unsupported)`);
 
     const kind = intent.channel === 'email' ? 'email' : intent.channel === 'whatsapp' ? 'whatsapp' : 'phone';
@@ -113,6 +124,7 @@ export class SendMessageHandler implements ActionHandler<SendMessagePayload> {
       conversationId: intent.conversationId ?? '',
       providerThreadId: conv?.providerThreadId,
       inReplyToProviderMessageId: replyTo?.providerMessageId,
+      replyHeaders: replyHeadersFor(replyTo),
       to: p.to,
       cc: p.cc,
       bcc: p.bcc,
@@ -126,7 +138,7 @@ export class SendMessageHandler implements ActionHandler<SendMessagePayload> {
     });
     if (res.kind === 'timeout') return { kind: 'ambiguous', error: 'provider timed out after a possible send' };
     if (res.kind === 'rejected') {
-      if (/invalid_grant|revoked|unauthori[sz]ed/i.test(res.error)) this.capabilities.markDisconnected(intent.connectorId, res.error);
+      if (/invalid_grant|revoked|unauthori[sz]ed|app password/i.test(res.error)) this.capabilities.markDisconnected(intent.connectorId, res.error);
       return res;
     }
     if (conv) {
@@ -147,7 +159,7 @@ export class SendMessageHandler implements ActionHandler<SendMessagePayload> {
         body: p.body,
         headers: { 'X-Jennifer-Action': intent.id },
         attachmentIds: p.attachmentIds,
-        occurredAt: new Date(),
+        occurredAt: (this.opts.clock ?? systemClock).now(),
         flags: [],
       });
     }
@@ -157,7 +169,19 @@ export class SendMessageHandler implements ActionHandler<SendMessagePayload> {
   async reconcile(intent: ActionIntent<SendMessagePayload>) {
     const connector = this.connectors.get(intent.connectorId);
     const found = await connector?.findByIdempotencyKey(intent.accountId, intent.idempotencyKey);
-    if (!found) return { found: false as const };
+    if (!found) {
+      const attemptedAt = [...intent.history].reverse().find((h) => h.to === 'executing')?.at;
+      const age = attemptedAt ? (this.opts.clock ?? systemClock).now().getTime() - attemptedAt.getTime() : Infinity;
+      if (age < (connector?.reconcileGraceMs ?? 0)) return { found: 'pending' as const };
+      return { found: false as const };
+    }
     return { found: true as const, receipt: { providerMessageId: found.providerMessageId, deliveryStatus: 'accepted' as const, evidence: 'found in provider sent records during reconciliation' } };
   }
+}
+
+function replyHeadersFor(m: { headers: Record<string, string> } | undefined): { inReplyTo: string; references: string[] } | undefined {
+  const id = m?.headers['message-id']?.trim().replace(/^<|>$/g, '');
+  if (!id) return undefined;
+  const refs = (m!.headers['references'] ?? '').split(/\s+/).map((r) => r.replace(/^<|>$/g, '')).filter(Boolean);
+  return { inReplyTo: id, references: [...refs, id] };
 }

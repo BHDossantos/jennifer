@@ -41,6 +41,8 @@ export interface JenniferOptions {
   /** Durable event log (Postgres in production); defaults to in-memory. */
   events?: EventLog;
   durability?: ActionDurability;
+  /** Sandbox mode for first live tests: only these recipients can receive sends. */
+  sandboxRecipients?: string[];
 }
 
 /**
@@ -75,7 +77,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
   for (const c of opts.emailConnectors ?? [new FakeEmailProvider('gmail')]) emailConnectors.set(c.id, c);
 
   const actions = new ActionService({ clock, audit, authority, controls, suppressions, conversations, deadLetters, random: opts.random, durability: opts.durability });
-  actions.register(new SendMessageHandler(contacts, conversations, emailConnectors, capabilities));
+  actions.register(new SendMessageHandler(contacts, conversations, emailConnectors, capabilities, { clock, sandboxRecipients: opts.sandboxRecipients }));
   actions.register(new CalendarActionHandler('create_event', calendar, contacts, capabilities));
   actions.register(new CalendarActionHandler('modify_event', calendar, contacts, capabilities));
 

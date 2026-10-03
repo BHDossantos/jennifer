@@ -7,6 +7,7 @@ import { verifyWebhookSignature } from '../events/events.js';
 import { redactSecrets } from '../security/redaction.js';
 import { DASHBOARD_HTML } from './dashboard.js';
 import type { IdentityService, Session } from '../identity/identity.js';
+import type { GmailService } from '../connectors/gmail/service.js';
 import { inventoryBlockers } from '../setup/inventory.js';
 import { AUTHORITY_TEMPLATES, enableTemplate } from '../policy/templates.js';
 
@@ -19,6 +20,7 @@ export interface ServerOptions {
   logger?: boolean;
   /** Passkey sessions. Static tokens are a bootstrap/break-glass path and can never satisfy step-up. */
   identity?: IdentityService;
+  gmail?: GmailService;
 }
 
 declare module 'fastify' {
@@ -159,6 +161,31 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     await requireIdentity().revokeDevice(j.ownerId, z.object({ id: z.string() }).parse(req.params).id, j.ownerId);
     return { revoked: true };
   });
+
+  // ---- Connectors: Gmail ----------------------------------------------------
+  /** Connecting accounts is security-sensitive: passkey step-up, or the bootstrap token in development only. */
+  const requireSensitive = (req: FastifyRequest) => {
+    if (req.session) {
+      if (!opts.identity?.hasRecentStepUp(req.session)) throw new JenniferError('approval.step_up_required', 'Confirm with your passkey first');
+      return;
+    }
+    if (j.config.env !== 'development') throw new JenniferError('identity.session_required', 'Sign in with a passkey to connect accounts');
+  };
+  const requireGmail = () => {
+    if (!opts.gmail) throw new JenniferError('gmail.not_configured', 'Gmail needs the durable database and a vault key');
+    return opts.gmail;
+  };
+  app.get('/v1/connectors/gmail', owner, async () => (opts.gmail ? opts.gmail.info() : { configured: false }));
+  app.post('/v1/connectors/gmail/connect', owner, async (req) => {
+    requireSensitive(req);
+    const b = z.object({ address: z.string().email(), appPassword: z.string().min(16).max(40) }).parse(req.body);
+    return requireGmail().connect(b.address, b.appPassword, j.ownerId);
+  });
+  app.post('/v1/connectors/gmail/disconnect', owner, async () => {
+    await requireGmail().disconnect(j.ownerId);
+    return { disconnected: true };
+  });
+  app.post('/v1/connectors/gmail/sync', owner, async () => ({ newMessages: await requireGmail().syncNow() }));
 
   // ---- Authority registry --------------------------------------------------
   app.get('/v1/authority', owner, async () => j.authority.list());

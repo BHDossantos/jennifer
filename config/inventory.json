@@ -17,14 +17,21 @@
   "phone": {
     "model": "iPhone 17 Pro Max",
     "os": "iOS",
-    "osVersion": null,
+    "osVersion": "26.6.1",
     "appStoreRegion": null,
     "carrier": "AT&T",
     "carrierCountry": "US",
     "numbers": [],
     "eSim": null
   },
-  "email": [],
+  "email": [
+    {
+      "provider": "gmail",
+      "address": "personal Gmail (address stored with the connection, not in this public repo)",
+      "space": "personal",
+      "sendAllowed": true
+    }
+  ],
   "calendars": [],
   "messaging": [],
   "social": [],
