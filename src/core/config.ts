@@ -44,6 +44,16 @@ const ConfigSchema = z.object({
     webhookToken: z.string().min(24).optional(),
     method: z.enum(['apple-script', 'private-api']).default('apple-script'),
   }),
+  /** WhatsApp Business via Meta's Cloud API (coexistence with the WhatsApp Business app). */
+  whatsapp: z.object({
+    token: z.string().optional(),
+    phoneNumberId: z.string().optional(),
+    appSecret: z.string().optional(),
+    verifyToken: z.string().optional(),
+    graphVersion: z.string().default('v21.0'),
+    /** Which of Bruno's spaces this business number belongs to. */
+    space: z.enum(['personal', 'insurance', 'music', 'restaurant', 'nonprofit', 'technology']).default('personal'),
+  }),
   /** Public base URL (for verifying signed provider webhooks). */
   publicUrl: z.string().url().optional(),
   /** Bruno's own number for warm transfers from Jennifer's phone line (E.164). */
@@ -94,6 +104,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       password: env.JENNIFER_IMESSAGE_PASSWORD || undefined,
       webhookToken: env.JENNIFER_IMESSAGE_WEBHOOK_TOKEN || undefined,
       method: env.JENNIFER_IMESSAGE_METHOD || undefined,
+    },
+    whatsapp: {
+      token: env.WHATSAPP_TOKEN || undefined,
+      phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID || undefined,
+      appSecret: env.WHATSAPP_APP_SECRET || undefined,
+      verifyToken: env.WHATSAPP_VERIFY_TOKEN || undefined,
+      graphVersion: env.WHATSAPP_GRAPH_VERSION || undefined,
+      space: env.JENNIFER_WHATSAPP_SPACE || undefined,
     },
     publicUrl: env.JENNIFER_PUBLIC_URL || (env.RENDER_EXTERNAL_URL ? env.RENDER_EXTERNAL_URL : undefined),
     transferNumber: env.JENNIFER_TRANSFER_NUMBER || undefined,

@@ -41,6 +41,16 @@ services:
         sync: false
       - key: JENNIFER_ALERT_SMS_TO   # your mobile, for urgent alerts when push is off
         sync: false
+      - key: WHATSAPP_TOKEN            # Meta system-user token (WhatsApp Cloud API)
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        generateValue: true
+      - key: JENNIFER_WHATSAPP_SPACE   # personal | insurance | music | restaurant | nonprofit | technology
+        value: personal
       - key: JENNIFER_IMESSAGE_URL      # BlueBubbles Server on your Mac (Cloudflare URL)
         sync: false
       - key: JENNIFER_IMESSAGE_PASSWORD

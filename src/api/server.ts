@@ -8,6 +8,7 @@ import type { Jennifer } from '../app.js';
 import { verifyWebhookSignature } from '../events/events.js';
 import { verifyTwilioSignature } from '../connectors/sms/twilio.js';
 import { verifyWebhookToken, type BlueBubblesMessage } from '../connectors/imessage/bluebubbles.js';
+import { toE164, verifyMetaSignature, type WhatsAppWebhookValue } from '../connectors/whatsapp/cloud.js';
 import { redactSecrets } from '../security/redaction.js';
 import { DASHBOARD_HTML } from './dashboard.js';
 import { MANIFEST, SERVICE_WORKER, appIcon } from './pwa.js';
@@ -716,6 +717,44 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     );
     j.capabilities.recordSync('sms');
     return reply.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+  });
+
+  // ---- WhatsApp Business (Meta Cloud API webhook) -------------------------------
+  /** Meta's one-time verification handshake when the webhook is registered. */
+  app.get('/v1/webhooks/whatsapp', async (req, reply) => {
+    const q = req.query as Record<string, string | undefined>;
+    const expected = j.config.whatsapp.verifyToken;
+    if (!expected || q['hub.mode'] !== 'subscribe' || !q['hub.verify_token'] || !verifyWebhookToken(expected, q['hub.verify_token'])) return reply.code(403).send('forbidden');
+    return reply.type('text/plain').send(q['hub.challenge'] ?? '');
+  });
+  app.post('/v1/webhooks/whatsapp', async (req, reply) => {
+    const wa = j.whatsapp;
+    if (!wa || !j.config.whatsapp.appSecret) return reply.code(503).send({ error: 'whatsapp not configured' });
+    if (!verifyMetaSignature(j.config.whatsapp.appSecret, req.rawBody ?? '', req.headers['x-hub-signature-256'] as string | undefined)) return reply.code(401).send({ error: 'bad signature' });
+    const body = req.body as { entry?: Array<{ changes?: Array<{ field?: string; value?: WhatsAppWebhookValue }> }> };
+    const space = j.config.whatsapp.space;
+    for (const change of (body.entry ?? []).flatMap((e) => e.changes ?? [])) {
+      const v = change.value ?? {};
+      for (const st of v.statuses ?? []) wa.noteStatus(st.biz_opaque_callback_data, st.id);
+      const names = new Map((v.contacts ?? []).map((c) => [c.wa_id, c.profile?.name]));
+      for (const m of v.messages ?? []) {
+        const from = toE164(m.from);
+        const at = Number(m.timestamp) * 1000 || j.clock.now().getTime();
+        wa.noteInbound(from, at);
+        const text = m.type === 'text' ? (m.text?.body ?? '') : `[${m.type} message]`;
+        await j.inbound.handle(
+          { accountId: wa.accountId, connectorId: 'whatsapp_business', providerMessageId: m.id, providerThreadId: `whatsapp:${from}`, from: { displayName: names.get(m.from), address: from }, to: [v.metadata?.display_phone_number ?? 'me'], cc: [], subject: '', body: text, headers: {}, occurredAt: new Date(at), space, channel: 'whatsapp' },
+          { autoDraft: m.type === 'text' },
+        );
+      }
+      // Coexistence: what Bruno typed in the WhatsApp Business app.
+      for (const e of v.message_echoes ?? []) {
+        const to = toE164(e.to);
+        j.inbound.handleSent({ accountId: wa.accountId, connectorId: 'whatsapp_business', providerMessageId: e.id, providerThreadId: `whatsapp:${to}`, from: { displayName: 'Bruno', address: 'me' }, to: [to], cc: [], subject: '', body: e.text?.body ?? `[${e.type}]`, headers: {}, occurredAt: new Date(Number(e.timestamp) * 1000 || j.clock.now().getTime()), space, channel: 'whatsapp' });
+      }
+    }
+    j.capabilities.recordSync('whatsapp_business');
+    return { ok: true };
   });
 
   // ---- iMessage / SMS from Bruno's Mac (BlueBubbles Server webhook) ----------

@@ -26,6 +26,7 @@ import { StyleLearner } from './learning/styleLearner.js';
 import { WebResearch } from './research/web.js';
 import { TwilioSms } from './connectors/sms/twilio.js';
 import { BlueBubblesIMessage } from './connectors/imessage/bluebubbles.js';
+import { WhatsAppCloud } from './connectors/whatsapp/cloud.js';
 import { ChainedVoice } from './voice/chained.js';
 import { CostLedger, DEFAULT_PRICING, MeteredModel, MeteredToolModel, type Pricing } from './ops/costs.js';
 import { FeedbackStore, ModelRegistry, type FeedbackKind } from './learning/feedback.js';
@@ -109,6 +110,12 @@ export function createJennifer(opts: JenniferOptions = {}) {
   for (const c of opts.emailConnectors ?? [new FakeEmailProvider('gmail')]) emailConnectors.set(c.id, c);
   const smsCfg = config.sms;
   const sms = smsCfg.accountSid && smsCfg.authToken && smsCfg.from ? new TwilioSms({ accountSid: smsCfg.accountSid, authToken: smsCfg.authToken, from: smsCfg.from, apiBase: smsCfg.apiBase, fetchImpl: opts.fetchImpl }) : undefined;
+  const wa = config.whatsapp;
+  const whatsapp = wa.token && wa.phoneNumberId && wa.appSecret ? new WhatsAppCloud({ token: wa.token, phoneNumberId: wa.phoneNumberId, appSecret: wa.appSecret, graphVersion: wa.graphVersion, fetchImpl: opts.fetchImpl, now: () => clock.now().getTime() }) : undefined;
+  if (whatsapp) {
+    emailConnectors.set(whatsapp.id, whatsapp);
+    capabilities.markConnected('whatsapp_business', whatsapp.accountId, 'Your WhatsApp Business number');
+  }
   const im = config.imessage;
   const imessage = im.url && im.password ? new BlueBubblesIMessage({ url: im.url, password: im.password, method: im.method, fetchImpl: opts.fetchImpl }) : undefined;
   if (imessage) {
@@ -407,6 +414,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     styleLearner,
     sms,
     imessage,
+    whatsapp,
     chainedVoice,
     costs,
     metrics,
@@ -594,6 +602,12 @@ export async function createDurableJennifer(opts: JenniferOptions & { db: Db }) 
   j.authority.restore(await store.loadRules());
   j.contacts.restore(await store.loadContacts());
   j.conversations.restore(await store.loadConversations());
+  // Re-open WhatsApp's 24-hour reply windows from stored conversations.
+  if (j.whatsapp)
+    for (const c of j.conversations.listConversations(ownerId).filter((c) => c.channel === 'whatsapp')) {
+      const last = j.conversations.latestInbound(c.id);
+      if (last) j.whatsapp.noteInbound(last.from.address, last.occurredAt.getTime());
+    }
   j.memory.restore(await store.loadMemory());
   const { intents, approvals } = await store.loadActions();
   j.actions.restore(intents, approvals);

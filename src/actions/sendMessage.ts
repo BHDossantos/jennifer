@@ -1,6 +1,6 @@
 import type { Space } from '../core/types.js';
 import { type Clock, systemClock } from '../core/util.js';
-import type { ContactDirectory } from '../contacts/contacts.js';
+import type { ContactDirectory, IdentityKind } from '../contacts/contacts.js';
 import type { ConversationStore } from '../events/conversations.js';
 import type { MessagingConnector } from '../connectors/connector.js';
 import type { CapabilityRegistry } from '../connectors/capabilities.js';
@@ -55,10 +55,12 @@ export class SendMessageHandler implements ActionHandler<SendMessagePayload> {
     }
     if (!this.capabilities.can(intent.connectorId, 'send')) violations.push(`connector ${intent.connectorId} cannot send (disconnected or unsupported)`);
 
-    const kindOf = (addr: string) => (intent.channel === 'email' || (intent.channel === 'imessage' && addr.includes('@')) ? 'email' : intent.channel === 'whatsapp' ? 'whatsapp' : 'phone');
+    const kindOf = (addr: string): IdentityKind => (intent.channel === 'email' || (intent.channel === 'imessage' && addr.includes('@')) ? 'email' : intent.channel === 'whatsapp' ? 'whatsapp' : 'phone');
     for (const addr of addresses) {
-      const kind = kindOf(addr);
-      const c = this.contacts.findByIdentity(intent.ownerId, kind, addr);
+      let kind: IdentityKind = kindOf(addr);
+      let c = this.contacts.findByIdentity(intent.ownerId, kind, addr);
+      // WhatsApp contacts are often saved by phone number.
+      if (!c && kind === 'whatsapp' && (c = this.contacts.findByIdentity(intent.ownerId, 'phone', addr))) kind = 'phone';
       if (!c) {
         concerns.push(`recipient ${addr} is not a known contact`);
         continue;

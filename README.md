@@ -35,6 +35,13 @@ Bruno's persistent executive assistant: backend foundation, policy engine, durab
     - In Render, set `JENNIFER_IMESSAGE_URL` (the Cloudflare URL BlueBubbles shows), `JENNIFER_IMESSAGE_PASSWORD` (the server password) and `JENNIFER_IMESSAGE_WEBHOOK_TOKEN` (any long random string).
     - In BlueBubbles → API & Webhooks, add `https://<your Jennifer URL>/v1/webhooks/imessage?token=<that token>` for **New Messages**.
     - Replies are written in your voice (they come from your own number) and wait for your OK unless you've given Jennifer standing permission for that contact. If you answer from your phone first, she drops her draft. Group chats are read for context only.
+12. **WhatsApp Business (your existing number, official Meta API):**
+    - In Meta's App Dashboard (developers.facebook.com) create a Business app, add **WhatsApp**, and onboard your **existing WhatsApp Business app number** with *coexistence* (you keep using the app on your phone; chats sync both ways).
+    - Create a permanent token (Business Settings → System users → generate token with `whatsapp_business_messaging`, `whatsapp_business_management`).
+    - In Render set `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET` (App settings → Basic), `WHATSAPP_VERIFY_TOKEN` (any long random string) and optionally `JENNIFER_WHATSAPP_SPACE` (e.g. `restaurant`).
+    - In the app's WhatsApp → Configuration, set the webhook to `https://<your Jennifer URL>/v1/webhooks/whatsapp` with that verify token, and subscribe to **messages** and **smb_message_echoes**.
+    - WhatsApp only allows free replies within 24 hours of the customer's last message; Jennifer enforces that. Messages you type in the app cancel her pending draft for that chat.
+13. **Autopilot:** Settings → **Turn on Autopilot** lets Jennifer reply on her own, in real time, to people you know on every connected account. Strangers, attachments, money, contracts and security changes still come to you. Turn it off with one tap.
 
 ## ChatGPT and Claude: what Jennifer can and cannot see
 
