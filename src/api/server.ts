@@ -9,6 +9,7 @@ import { DASHBOARD_HTML } from './dashboard.js';
 import { MANIFEST, SERVICE_WORKER, appIcon } from './pwa.js';
 import { FEMALE_VOICE_CANDIDATES } from '../voice/realtime.js';
 import { MISSION_PRESETS, MissionInputSchema } from '../missions/missions.js';
+import { PrefsSchema, PushSubscriptionSchema } from '../notify/push.js';
 import { DEFAULT_VOICE, type VoiceSettings } from '../voice/persona.js';
 import type { IdentityService, Session } from '../identity/identity.js';
 import type { GmailService } from '../connectors/gmail/service.js';
@@ -223,6 +224,23 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
       return { ok: false, error: e instanceof JenniferError ? e.message : 'Tool failed' };
     }
   });
+
+  // ---- Push notifications ----------------------------------------------------
+  app.get('/v1/push/key', owner, async () => ({ publicKey: (await j.notifications.keys()).publicKey }));
+  app.post('/v1/push/subscribe', owner, async (req) => {
+    const b = z.object({ subscription: PushSubscriptionSchema, label: z.string().max(80).optional() }).parse(req.body);
+    await j.notifications.subscribe(b.subscription, b.label);
+    return { subscribed: true };
+  });
+  app.post('/v1/push/unsubscribe', owner, async (req) => {
+    await j.notifications.unsubscribe(z.object({ endpoint: z.string().url() }).parse(req.body).endpoint);
+    return { unsubscribed: true };
+  });
+  app.post('/v1/push/test', owner, async () => ({
+    result: await j.notifications.notify({ kind: 'decision', title: 'Jennifer', body: 'Notifications are working.', url: '/', urgent: true, dedupKey: `test:${Date.now()}` }),
+  }));
+  app.get('/v1/notifications/prefs', owner, async () => j.notifications.prefs());
+  app.put('/v1/notifications/prefs', owner, async (req) => j.notifications.setPrefs(PrefsSchema.partial().parse(req.body ?? {})));
 
   // ---- Chat ("Ask Jennifer") -------------------------------------------------
   app.post('/v1/chat', owner, async (req) => {

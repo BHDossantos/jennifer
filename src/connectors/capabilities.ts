@@ -219,11 +219,19 @@ export class CapabilityRegistry {
     for (const cap of CAPABILITIES) if (c.capabilities[cap].status === 'disconnected') c.capabilities[cap].status = 'conditional';
   }
 
+  private disconnectListeners: Array<(id: string, error: string) => void> = [];
+
+  onDisconnected(fn: (id: string, error: string) => void): void {
+    this.disconnectListeners.push(fn);
+  }
+
   markDisconnected(id: string, error: string): void {
     const c = this.require(id);
+    const wasConnected = c.connected;
     c.connected = false;
     c.lastError = error;
     for (const cap of CAPABILITIES) if (c.capabilities[cap].status !== 'unavailable') c.capabilities[cap].status = 'disconnected';
+    if (wasConnected) for (const l of this.disconnectListeners) l(id, error);
   }
 
   recordSync(id: string): void {

@@ -21,7 +21,7 @@ export const MANIFEST = {
 };
 
 export const SERVICE_WORKER = `
-const SHELL = 'jennifer-shell-v1';
+const SHELL = 'jennifer-shell-v2';
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(['/', '/manifest.webmanifest', '/icon-192.png'])));
   self.skipWaiting();
@@ -29,6 +29,19 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== SHELL).map((k) => caches.delete(k)))));
   self.clients.claim();
+});
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch {}
+  e.waitUntil(self.registration.showNotification(d.title || 'Jennifer', { body: d.body || '', tag: d.tag, data: { url: d.url || '/' }, icon: '/icon-192.png', badge: '/icon-192.png' }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ws) => {
+    for (const w of ws) { if ('focus' in w) { w.navigate(url); return w.focus(); } }
+    return self.clients.openWindow(url);
+  }));
 });
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);

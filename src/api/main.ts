@@ -22,7 +22,6 @@ else if (dev) {
 
 // Sandbox: until Bruno lifts it, sends may only go to these addresses (comma-separated).
 const sandboxRecipients = process.env.JENNIFER_EMAIL_SANDBOX?.split(',').map((a) => a.trim()).filter(Boolean);
-const j = await createDurableJennifer({ db, clock: systemClock, sandboxRecipients: sandboxRecipients?.length ? sandboxRecipients : undefined });
 
 // Vault master key: env in staging/production; generated once into .data/ in development.
 let vaultKeys = process.env.JENNIFER_VAULT_KEYS;
@@ -32,6 +31,12 @@ if (!vaultKeys && dev) {
   vaultKeys = readFileSync(keyFile, 'utf8').trim();
 }
 const vault = vaultKeys ? new Vault(db, LocalKeyWrapper.fromEnv(vaultKeys)) : undefined;
+// Small secrets (VAPID push keys) live in the vault, bound to this environment.
+const secretBinding = { ownerId: process.env.JENNIFER_OWNER_ID ?? 'bruno', accountId: 'jennifer:app', environment: env };
+const secrets = vault
+  ? { get: (k: string) => vault.get(`app:${k}`, secretBinding).catch(() => undefined), set: (k: string, v: string) => vault.put(`app:${k}`, v, secretBinding) }
+  : undefined;
+const j = await createDurableJennifer({ db, clock: systemClock, sandboxRecipients: sandboxRecipients?.length ? sandboxRecipients : undefined, secrets });
 const gmail = vault
   ? new GmailService({
       db,
@@ -79,7 +84,10 @@ const timer = setInterval(() => {
   j.memory.expireDue();
 }, 5000);
 // Mission scheduler: due background runs (read-only research) once a minute.
-const missionTimer = setInterval(() => void j.missions.tick().catch((e) => app.log.error(e)), 60_000);
+const missionTimer = setInterval(() => {
+  void j.missions.tick().catch((e) => app.log.error(e));
+  void j.notifications.flushHeld().catch((e) => app.log.error(e));
+}, 60_000);
 missionTimer.unref();
 timer.unref();
 

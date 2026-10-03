@@ -468,6 +468,13 @@ export class ActionService {
     return h;
   }
 
+  private transitionListeners: Array<(intent: ActionIntent, from: ActionState) => void> = [];
+
+  /** Observe state changes (notifications, metrics). Listeners must not throw. */
+  onTransition(fn: (intent: ActionIntent, from: ActionState) => void): void {
+    this.transitionListeners.push(fn);
+  }
+
   private transition(intent: ActionIntent, to: ActionState, actor: string, reason?: string): void {
     const from = intent.state;
     if (from !== to && !TRANSITIONS[from].includes(to)) throw new JenniferError('action.bad_transition', `${from} → ${to} not allowed`);
@@ -475,5 +482,13 @@ export class ActionService {
     intent.stateReason = reason;
     intent.history.push({ at: this.d.clock.now(), from, to, reason, actor });
     this.d.durability?.record(intent);
+    if (from !== to)
+      for (const l of this.transitionListeners) {
+        try {
+          l(intent, from);
+        } catch {
+          /* observers never break the pipeline */
+        }
+      }
   }
 }

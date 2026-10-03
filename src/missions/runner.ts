@@ -37,6 +37,7 @@ export interface MissionDeps {
   emailAccount: () => { accountId: string; connectorId: string } | undefined;
   /** EUR per 1M tokens, for budget enforcement. */
   pricing?: { inputPerM: number; outputPerM: number };
+  onResult?: (m: Mission, result: Mission['results'][number]) => void;
 }
 
 export type RunMode = 'research' | 'work';
@@ -169,6 +170,7 @@ export class MissionService {
       m.results.unshift({ id: newId('res'), at: this.d.clock.now().toISOString(), title: `${m.title}: ${mode === 'research' ? 'update' : 'report'}`, body, sources: [...sources], proposedActionIds: proposed, status: 'new' });
       m.results = m.results.slice(0, 50);
       log(m, this.d.clock, 'result', body.split('\n')[0]!.slice(0, 160));
+      this.d.onResult?.(m, m.results[0]!);
       log(m, this.d.clock, 'run_finished', `Finished: ${result.toolCalls} steps, about €${costEur.toFixed(3)}`);
     } catch (e) {
       log(m, this.d.clock, 'error', `Run failed: ${(e as Error).message}`);

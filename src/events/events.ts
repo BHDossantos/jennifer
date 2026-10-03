@@ -119,10 +119,15 @@ export interface DeadLetter {
 /** Repeated failures land here with a visible recovery action (spec §5). */
 export class DeadLetterQueue {
   private items: DeadLetter[] = [];
+  private listeners: Array<(d: DeadLetter) => void> = [];
   constructor(private clock: Clock) {}
+  onPush(fn: (d: DeadLetter) => void): void {
+    this.listeners.push(fn);
+  }
   push(d: Omit<DeadLetter, 'id' | 'at'>): DeadLetter {
     const item = { ...d, id: newId('dlq'), at: this.clock.now() };
     this.items.push(item);
+    for (const l of this.listeners) l(item);
     return item;
   }
   list(): DeadLetter[] {

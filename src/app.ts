@@ -30,6 +30,7 @@ import { OpenAIToolModel, type ToolCallingModel } from './core/agentLoop.js';
 import { MemoryMissionStore, PgMissionStore, type MissionStore } from './missions/missions.js';
 import { MissionService } from './missions/runner.js';
 import { ChatService } from './assistant/chat.js';
+import { NotificationService, type PushSender, type SecretKV } from './notify/push.js';
 import { migrate } from './db/migrate.js';
 import { PgEventLog, PgStateStore, ensureOwner } from './db/pgStore.js';
 import { readFileSync, existsSync } from 'node:fs';
@@ -54,6 +55,9 @@ export interface JenniferOptions {
   fetchImpl?: typeof fetch;
   toolModel?: ToolCallingModel;
   missionStore?: MissionStore;
+  /** Where VAPID keys are kept (vault in production). */
+  secrets?: SecretKV;
+  pushSender?: PushSender;
 }
 
 /**
@@ -106,6 +110,37 @@ export function createJennifer(opts: JenniferOptions = {}) {
   registerStandardTools(tools, { ownerId, conversations, memory, calendar, actions, dailyBrief });
   const settings = opts.settings ?? new MemorySettings();
   const voice = new RealtimeVoiceService({ apiKey: config.openai.apiKey, baseUrl: config.openai.baseUrl, model: config.openai.realtimeModel, fetchImpl: opts.fetchImpl });
+  const memorySecrets = new Map<string, string>();
+  const notifications = new NotificationService({
+    clock,
+    settings,
+    audit,
+    secrets: opts.secrets ?? { get: async (k) => memorySecrets.get(k), set: async (k, v) => void memorySecrets.set(k, v) },
+    subject: process.env.JENNIFER_PUSH_SUBJECT ?? (process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : 'mailto:jennifer@localhost.invalid'),
+    send: opts.pushSender,
+  });
+  const quietly = (p: Promise<unknown>) => void p.catch(() => undefined);
+  actions.onTransition((i, from) => {
+    if (i.state !== 'awaiting_decision' || from === 'awaiting_decision') return;
+    const p = i.payload as { to?: string[]; subject?: string };
+    quietly(
+      notifications.notify({
+        kind: 'decision',
+        title: 'Jennifer needs a decision',
+        body: i.type === 'send_message' ? 'A message is ready for your approval.' : 'An action is waiting for your approval.',
+        detail: `${i.type === 'send_message' ? 'Email' : i.type} to ${(p.to ?? []).join(', ')}${p.subject ? `: ${p.subject}` : ''}`,
+        url: '/?tab=today',
+        dedupKey: `decision:${i.id}:${i.revision}`,
+      }),
+    );
+  });
+  capabilities.onDisconnected((id, error) =>
+    quietly(notifications.notify({ kind: 'problem', title: 'Jennifer: an account disconnected', body: `${id} needs reconnecting. I can't check it until then.`, detail: `${id}: ${error}`, url: '/?tab=connections', urgent: true, dedupKey: `disconnected:${id}` })),
+  );
+  deadLetters.onPush((d) =>
+    quietly(notifications.notify({ kind: 'problem', title: 'Jennifer: something failed', body: 'An action could not be completed.', detail: `${d.kind}: ${d.error}`, url: '/?tab=today', dedupKey: `dlq:${d.subjectId}` })),
+  );
+
   const toolModel = opts.toolModel ?? (config.openai.apiKey ? new OpenAIToolModel(config.openai.apiKey, config.openai.baseUrl, opts.fetchImpl) : undefined);
   const missions = new MissionService({
     clock,
@@ -118,6 +153,10 @@ export function createJennifer(opts: JenniferOptions = {}) {
     audit,
     model: toolModel,
     modelName: config.openai.reasoningModel,
+    onResult: (m, r) => {
+      if (/^Nothing to report/.test(r.body)) return;
+      quietly(notifications.notify({ kind: 'mission', title: `Mission: ${m.title}`, body: 'New result to review.', detail: r.body.slice(0, 180), url: '/?tab=missions', dedupKey: `mission:${r.id}` }));
+    },
     emailAccount: () => {
       const g = capabilities.get('gmail');
       return g?.connected && g.accountId ? { accountId: g.accountId, connectorId: 'gmail' } : undefined;
@@ -172,6 +211,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     voice,
     missions,
     chat,
+    notifications,
     dailyBrief,
   };
 }

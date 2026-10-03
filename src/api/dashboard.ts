@@ -167,9 +167,16 @@ const views = {
   },
   async settings() {
     const t = await api('/v1/today');
+    const np = await api('/v1/notifications/prefs');
+    const notif = \`<div class="card"><strong>Notifications</strong>
+      <p class="muted">On iPhone, notifications work once Jennifer is on your Home Screen (Share → Add to Home Screen).</p>
+      <div class="row"><button class="btn primary" data-push="enable">Turn on notifications</button><button class="btn" data-push="test">Send a test</button></div>
+      <label>Quiet from <input type="time" data-pref="quietStart" value="\${np.quietStart}"></label>
+      <label>until <input type="time" data-pref="quietEnd" value="\${np.quietEnd}"></label>
+      <label><input type="checkbox" data-pref="showDetails" \${np.showDetails ? 'checked' : ''}> Show details on the lock screen</label></div>\`;
     return \`<div class="card"><strong>Controls</strong><pre>\${esc(JSON.stringify(t.controls, null, 2))}</pre>
       <div class="row"><button class="btn" data-ctl="pause">Pause Jennifer</button><button class="btn" data-ctl="resume">Resume</button><button class="btn danger" data-ctl="emergency-stop">Emergency stop</button></div>
-      <p class="muted">Stopping cancels queued work. Messages already sent cannot reliably be unsent.</p></div>\`;
+      <p class="muted">Stopping cancels queued work. Messages already sent cannot reliably be unsent.</p></div>\` + notif;
   },
 };
 async function show(tab) {
@@ -195,6 +202,19 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (t.dataset.choose) { await api('/v1/voice/settings', { method: 'PUT', body: JSON.stringify({ voiceId: t.dataset.choose }) }); return show('voice'); }
+  if (t.dataset.push === 'enable') {
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('add Jennifer to your Home Screen first');
+      if ((await Notification.requestPermission()) !== 'granted') throw new Error('permission not granted');
+      const reg = await navigator.serviceWorker.ready;
+      const { publicKey } = await api('/v1/push/key');
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBuf(publicKey) });
+      await api('/v1/push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON(), label: navigator.platform || 'device' }) });
+      $('#status').textContent = 'Notifications are on';
+    } catch (err) { $('#status').textContent = 'Notifications: ' + err.message; }
+    return;
+  }
+  if (t.dataset.push === 'test') { const r = await api('/v1/push/test', { method: 'POST', body: '{}' }); $('#status').textContent = 'Test: ' + r.result; return; }
   if (t.dataset.chat === 'new') { chatSession = null; chatLog = []; return show('ask'); }
   if (t.dataset.chat === 'send') {
     const text = $('#chatin').value.trim(); if (!text) return;
@@ -236,6 +256,10 @@ document.addEventListener('click', async (e) => {
   if (t.dataset.ctl) { await api('/v1/controls/' + t.dataset.ctl, { method: 'POST', body: '{}' }); return show('settings'); }
 });
 document.addEventListener('change', async (e) => {
+  if (e.target.dataset && e.target.dataset.pref) {
+    const k = e.target.dataset.pref; const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    await api('/v1/notifications/prefs', { method: 'PUT', body: JSON.stringify({ [k]: v }) }); return;
+  }
   if (e.target.dataset && e.target.dataset.voiceset) {
     const k = e.target.dataset.voiceset; const v = k === 'mode' ? e.target.value : Number(e.target.value);
     await api('/v1/voice/settings', { method: 'PUT', body: JSON.stringify({ [k]: v }) }); return;
@@ -289,7 +313,8 @@ function stopVoice() {
 }
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-if (token) show('today'); else $('#view').innerHTML = '<p class="muted">Sign in with your passkey to continue.</p>';
+const startTab = new URLSearchParams(location.search).get('tab');
+if (token) show(startTab && views[startTab] ? startTab : 'today'); else $('#view').innerHTML = '<p class="muted">Sign in with your passkey to continue.</p>';
 </script>
 </body>
 </html>`;
