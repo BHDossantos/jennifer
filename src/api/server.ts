@@ -6,6 +6,8 @@ import type { Jennifer } from '../app.js';
 import { verifyWebhookSignature } from '../events/events.js';
 import { redactSecrets } from '../security/redaction.js';
 import { DASHBOARD_HTML } from './dashboard.js';
+import { inventoryBlockers } from '../setup/inventory.js';
+import { AUTHORITY_TEMPLATES, enableTemplate } from '../policy/templates.js';
 
 export type Role = 'owner' | 'developer' | 'operator';
 
@@ -75,6 +77,11 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     activity: j.agents.activityFeed().slice(-20),
   }));
   app.get('/v1/connections', anyone, async () => j.capabilities.screen());
+  app.get('/v1/setup', owner, async () => ({
+    inventory: j.inventory,
+    blockers: j.inventory ? inventoryBlockers(j.inventory) : [{ area: 'setup', missing: 'config/inventory.json', why: 'No inventory loaded', owner: 'engineering' }],
+    templates: AUTHORITY_TEMPLATES,
+  }));
 
   // ---- Actions & approvals ------------------------------------------------
   app.get('/v1/actions', owner, async (req) => {
@@ -117,6 +124,16 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
       })
       .parse(req.body);
     return j.authority.grant({ ...b, principal: j.ownerId });
+  });
+  app.post('/v1/authority/templates/:templateId', owner, async (req) => {
+    const { templateId } = z.object({ templateId: z.string() }).parse(req.params);
+    const b = z
+      .object({
+        scope: z.object({ accountIds: z.array(z.string()).optional(), contactIds: z.array(z.string()).optional(), domains: z.array(z.string()).optional(), spaces: z.array(z.enum(SPACES)).optional() }),
+        expiresAt: z.coerce.date().optional(),
+      })
+      .parse(req.body);
+    return enableTemplate(j.authority, templateId, j.ownerId, b.scope, b.expiresAt);
   });
   app.delete('/v1/authority/:id', owner, async (req) => {
     const { id } = z.object({ id: z.string() }).parse(req.params);

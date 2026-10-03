@@ -23,6 +23,8 @@ import { FeedbackStore, ModelRegistry } from './learning/feedback.js';
 import { ToolRegistry } from './tools/registry.js';
 import { InboundProcessor } from './assistant/inbound.js';
 import { DateTime } from 'luxon';
+import { readFileSync, existsSync } from 'node:fs';
+import { InventorySchema, type Inventory } from './setup/inventory.js';
 
 export interface JenniferOptions {
   clock?: Clock;
@@ -31,6 +33,8 @@ export interface JenniferOptions {
   emailConnectors?: MessagingConnector[];
   calendarProvider?: FakeCalendarProvider;
   random?: () => number;
+  /** Path to the account/device inventory JSON; defaults to config/inventory.json when present. */
+  inventoryPath?: string | null;
 }
 
 /**
@@ -80,9 +84,13 @@ export function createJennifer(opts: JenniferOptions = {}) {
   const tools = new ToolRegistry(() => clock.now().getTime());
   registerStandardTools(tools, { ownerId, conversations, memory, calendar, actions });
 
+  const inventoryPath = opts.inventoryPath === undefined ? 'config/inventory.json' : opts.inventoryPath;
+  const inventory: Inventory | undefined = inventoryPath && existsSync(inventoryPath) ? InventorySchema.parse(JSON.parse(readFileSync(inventoryPath, 'utf8'))) : undefined;
+
   return {
     clock,
     config,
+    inventory,
     ownerId,
     audit,
     authority,

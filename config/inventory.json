@@ -1,0 +1,33 @@
+{
+  "updatedAt": "2026-10-03",
+  "owner": {
+    "name": "Bruno D",
+    "homeTimeZone": "Europe/Rome",
+    "countries": ["US", "IT"],
+    "languages": ["en", "pt-BR", "es", "it"]
+  },
+  "phone": {
+    "model": "iPhone 17 Pro Max",
+    "os": "iOS",
+    "osVersion": null,
+    "appStoreRegion": null,
+    "carrier": "AT&T",
+    "carrierCountry": "US",
+    "numbers": [],
+    "eSim": null
+  },
+  "email": [],
+  "calendars": [],
+  "messaging": [],
+  "social": [],
+  "desktops": [],
+  "existingAssistantCode": [
+    {
+      "repo": "BHDossantos/Bruno-AI-Workforce",
+      "assessment": "See docs/WORKFORCE_ASSESSMENT.md",
+      "reuse": "pending"
+    },
+    { "repo": "BHDossantos/Jarvis", "assessment": "Empty: only a placeholder CI workflow", "reuse": "none" },
+    { "repo": "BHDossantos/Jarvis-ML", "assessment": "Empty repository", "reuse": "none" }
+  ]
+}

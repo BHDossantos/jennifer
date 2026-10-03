@@ -92,7 +92,8 @@ export function defaultConnectorCatalog(): ConnectorDescriptor[] {
       docsUrl: 'https://developers.openai.com/api/docs/guides/voice-sip',
       requiredScopes: [],
       appReview: 'Regional sender registration and carrier restrictions; legal review of recording and automated calling (IT, US).',
-      reconnectProcedure: "Keep Bruno's existing service active; forwarding rollback plan documented before porting.",
+      reconnectProcedure:
+        "Do not port Bruno's AT&T number. Use AT&T conditional forwarding to Jennifer's provider number: no answer **61*<n>#, busy **67*<n>#, unreachable **62*<n>#. Roll back with ##61#, ##67#, ##62#; check with *#61#. Forwarding moves calls only, never SMS. See docs/SETUP_DESIGN.md.",
       capabilities: caps({ call: 'conditional', read: ['conditional', 'SMS receive on provider number only'], send: ['conditional', 'SMS send on provider number only'], webhook: 'conditional' }),
       connected: false,
     },
@@ -124,10 +125,26 @@ export function defaultConnectorCatalog(): ConnectorDescriptor[] {
       accountType: "Bruno's iPhone",
       docsUrl: 'https://developer.apple.com/documentation/telephonymessagingkit',
       requiredScopes: [],
-      appReview: 'Entitlement, region and OS availability not established; real-device feasibility test required.',
+      appReview: 'Entitlement, region and OS availability not established; real-device feasibility test on the iPhone 17 Pro Max required.',
       capabilities: caps({ draft: ['conditional', 'Share sheet / draft handoff where the OS supports it'] }),
       connected: false,
-      lastError: 'Feasibility investigation — not a cloud integration.',
+      lastError:
+        'iOS gives third-party apps no access to the Messages inbox. AT&T forwarding does not forward SMS. Jennifer can prepare a text you send yourself, but cannot read or send iMessage/SMS on your personal number.',
+    },
+    {
+      id: 'ios_app',
+      provider: 'Jennifer iOS app (React Native + Swift modules)',
+      channel: 'app',
+      accountType: "Bruno's iPhone 17 Pro Max (AT&T)",
+      requiredScopes: ['Microphone', 'Notifications', 'Speech (optional)'],
+      appReview: 'Apple Developer Program, TestFlight distribution; CallKit/PushKit for app-to-app voice calls.',
+      capabilities: caps({
+        read: ['conditional', 'Push notifications and in-app inbox for Jennifer items'],
+        draft: ['conditional', 'Share extension: send text, links and files to Jennifer'],
+        send: ['conditional', 'Messages composer handoff: Bruno taps send himself'],
+        call: ['conditional', 'Push-to-talk voice session; App Intents for Siri and Shortcuts ("Ask Jennifer")'],
+      }),
+      connected: false,
     },
     ...['instagram', 'facebook', 'linkedin', 'x', 'telegram'].map<ConnectorDescriptor>((id) => ({
       id,
