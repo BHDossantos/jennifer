@@ -7,6 +7,7 @@ import { ACTION_MODES, ACTION_TYPES, JenniferError, SPACES } from '../core/types
 import type { Jennifer } from '../app.js';
 import { verifyWebhookSignature } from '../events/events.js';
 import { verifyTwilioSignature } from '../connectors/sms/twilio.js';
+import { verifyWebhookToken, type BlueBubblesMessage } from '../connectors/imessage/bluebubbles.js';
 import { redactSecrets } from '../security/redaction.js';
 import { DASHBOARD_HTML } from './dashboard.js';
 import { MANIFEST, SERVICE_WORKER, appIcon } from './pwa.js';
@@ -715,6 +716,43 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     );
     j.capabilities.recordSync('sms');
     return reply.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+  });
+
+  // ---- iMessage / SMS from Bruno's Mac (BlueBubbles Server webhook) ----------
+  app.post('/v1/webhooks/imessage', async (req, reply) => {
+    const cfg = j.config.imessage;
+    if (!j.imessage || !cfg.webhookToken) return reply.code(503).send({ error: 'imessage not configured' });
+    if (!verifyWebhookToken(cfg.webhookToken, (req.query as { token?: string }).token)) return reply.code(401).send({ error: 'bad token' });
+    const ev = z.object({ type: z.string(), data: z.any() }).parse(req.body);
+    if (ev.type !== 'new-message' || !ev.data) return { ignored: ev.type };
+    const m = ev.data as BlueBubblesMessage;
+    const chat = m.chats?.[0];
+    const text = (m.text ?? '').trim();
+    if (!chat || !text) return { ignored: 'no text' };
+    const group = chat.guid.includes(';+;');
+    const counterpart = m.handle?.address ?? chat.guid.split(';-;')[1] ?? 'unknown';
+    const base = {
+      accountId: j.imessage.accountId,
+      connectorId: 'imessage',
+      providerMessageId: m.guid,
+      providerThreadId: `imessage:${chat.guid}`,
+      cc: [],
+      subject: chat.displayName ?? '',
+      body: text,
+      headers: {},
+      occurredAt: new Date(m.dateCreated || j.clock.now().getTime()),
+      space: 'personal' as const,
+      channel: 'imessage' as const,
+    };
+    if (m.isFromMe) {
+      // Jennifer's own sends echo back from the Mac; anything else is Bruno typing on his phone or Mac.
+      if (j.imessage.isOwnEcho(chat.guid, text)) return { own: true };
+      return j.inbound.handleSent({ ...base, from: { displayName: 'Bruno', address: 'me' }, to: [counterpart] });
+    }
+    // Group chats are kept for context; Jennifer drafts only in one-to-one chats.
+    const r = await j.inbound.handle({ ...base, from: { address: counterpart }, to: ['me'] }, { autoDraft: !group });
+    j.capabilities.recordSync('imessage');
+    return { received: true, drafted: !!r.proposedActionId };
   });
 
   app.post('/v1/webhooks/email/:connectorId', async (req, reply) => {

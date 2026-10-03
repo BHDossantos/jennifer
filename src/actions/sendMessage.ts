@@ -55,8 +55,9 @@ export class SendMessageHandler implements ActionHandler<SendMessagePayload> {
     }
     if (!this.capabilities.can(intent.connectorId, 'send')) violations.push(`connector ${intent.connectorId} cannot send (disconnected or unsupported)`);
 
-    const kind = intent.channel === 'email' ? 'email' : intent.channel === 'whatsapp' ? 'whatsapp' : 'phone';
+    const kindOf = (addr: string) => (intent.channel === 'email' || (intent.channel === 'imessage' && addr.includes('@')) ? 'email' : intent.channel === 'whatsapp' ? 'whatsapp' : 'phone');
     for (const addr of addresses) {
+      const kind = kindOf(addr);
       const c = this.contacts.findByIdentity(intent.ownerId, kind, addr);
       if (!c) {
         concerns.push(`recipient ${addr} is not a known contact`);

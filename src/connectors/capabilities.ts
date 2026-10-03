@@ -167,16 +167,17 @@ export function defaultConnectorCatalog(): ConnectorDescriptor[] {
     },
     {
       id: 'imessage',
-      provider: 'Apple iMessage / SMS on iPhone',
+      provider: 'Your iMessage and SMS via your Mac (BlueBubbles Server)',
       channel: 'imessage',
-      accountType: "Bruno's iPhone",
-      docsUrl: 'https://developer.apple.com/documentation/telephonymessagingkit',
+      accountType: "Bruno's Apple ID, signed in on his always-on Mac; SMS through the iPhone's Text Message Forwarding",
+      docsUrl: 'https://docs.bluebubbles.app/server',
       requiredScopes: [],
-      appReview: 'Entitlement, region and OS availability not established; real-device feasibility test on the iPhone 17 Pro Max required.',
-      capabilities: caps({ draft: ['conditional', 'Share sheet / draft handoff where the OS supports it'] }),
+      appReview: 'None. The Mac needs Full Disk Access and Automation permissions for BlueBubbles, must stay awake and online, and is reached through its built-in Cloudflare tunnel.',
+      limits: 'One recipient per message; no attachments yet; replies follow the same permissions as email (drafts wait for you unless a standing rule covers the contact).',
+      reconnectProcedure: 'Set JENNIFER_IMESSAGE_URL, JENNIFER_IMESSAGE_PASSWORD and JENNIFER_IMESSAGE_WEBHOOK_TOKEN; in BlueBubbles add the webhook https://<jennifer>/v1/webhooks/imessage?token=<token> for "New Messages". See README.',
+      capabilities: caps({ read: ['conditional', 'New messages as they arrive on the Mac'], send: 'conditional', webhook: 'conditional', draft: 'conditional' }),
       connected: false,
-      lastError:
-        'iOS gives third-party apps no access to the Messages inbox. AT&T forwarding does not forward SMS. Jennifer can prepare a text you send yourself, but cannot read or send iMessage/SMS on your personal number.',
+      lastError: 'Not set up yet: needs BlueBubbles Server on your Mac (see README).',
     },
     // Social accounts (spec §7): each is a separate investigation; DM access depends on account type and app review.
     {

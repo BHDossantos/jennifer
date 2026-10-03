@@ -37,6 +37,13 @@ const ConfigSchema = z.object({
     /** Bruno's own mobile (E.164) for urgent alerts when push is unavailable. */
     alertTo: z.string().regex(/^\+\d{8,15}$/).optional(),
   }),
+  /** Bruno's iMessage/SMS through BlueBubbles Server on his Mac. */
+  imessage: z.object({
+    url: z.string().url().optional(),
+    password: z.string().optional(),
+    webhookToken: z.string().min(24).optional(),
+    method: z.enum(['apple-script', 'private-api']).default('apple-script'),
+  }),
   /** Public base URL (for verifying signed provider webhooks). */
   publicUrl: z.string().url().optional(),
   /** Bruno's own number for warm transfers from Jennifer's phone line (E.164). */
@@ -81,6 +88,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       from: env.JENNIFER_SMS_FROM || undefined,
       apiBase: env.TWILIO_API_BASE || undefined,
       alertTo: env.JENNIFER_ALERT_SMS_TO || undefined,
+    },
+    imessage: {
+      url: env.JENNIFER_IMESSAGE_URL || undefined,
+      password: env.JENNIFER_IMESSAGE_PASSWORD || undefined,
+      webhookToken: env.JENNIFER_IMESSAGE_WEBHOOK_TOKEN || undefined,
+      method: env.JENNIFER_IMESSAGE_METHOD || undefined,
     },
     publicUrl: env.JENNIFER_PUBLIC_URL || (env.RENDER_EXTERNAL_URL ? env.RENDER_EXTERNAL_URL : undefined),
     transferNumber: env.JENNIFER_TRANSFER_NUMBER || undefined,

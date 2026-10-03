@@ -29,6 +29,12 @@ Bruno's persistent executive assistant: backend foundation, policy engine, durab
    - **Transfers:** optionally set `JENNIFER_TRANSFER_NUMBER` to your own number.
    - **AT&T forwarding:** after a test call works, dial `**61*<Jennifer's number>#` on your iPhone so unanswered calls reach her. `##61#` turns it off.
 10. **Your ChatGPT and Claude history:** see below.
+11. **iMessage and SMS from your own number (needs your Mac):**
+    - On the iPhone: Settings → Apps → Messages → **Text Message Forwarding** → turn on your Mac (so regular SMS reach the Mac too).
+    - On the Mac: install **BlueBubbles Server** (bluebubbles.app), sign in to Messages with your Apple ID, give BlueBubbles **Full Disk Access** and **Automation** permission when asked, set a server password, and turn on its **Cloudflare** proxy. Set the Mac to never sleep (System Settings → Energy) and keep it plugged in.
+    - In Render, set `JENNIFER_IMESSAGE_URL` (the Cloudflare URL BlueBubbles shows), `JENNIFER_IMESSAGE_PASSWORD` (the server password) and `JENNIFER_IMESSAGE_WEBHOOK_TOKEN` (any long random string).
+    - In BlueBubbles → API & Webhooks, add `https://<your Jennifer URL>/v1/webhooks/imessage?token=<that token>` for **New Messages**.
+    - Replies are written in your voice (they come from your own number) and wait for your OK unless you've given Jennifer standing permission for that contact. If you answer from your phone first, she drops her draft. Group chats are read for context only.
 
 ## ChatGPT and Claude: what Jennifer can and cannot see
 

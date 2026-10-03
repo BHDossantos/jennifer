@@ -41,6 +41,12 @@ services:
         sync: false
       - key: JENNIFER_ALERT_SMS_TO   # your mobile, for urgent alerts when push is off
         sync: false
+      - key: JENNIFER_IMESSAGE_URL      # BlueBubbles Server on your Mac (Cloudflare URL)
+        sync: false
+      - key: JENNIFER_IMESSAGE_PASSWORD
+        sync: false
+      - key: JENNIFER_IMESSAGE_WEBHOOK_TOKEN
+        generateValue: true
       - key: JENNIFER_TRANSFER_NUMBER  # your own number (E.164) for warm transfers; leave empty to disable
         sync: false
 

@@ -25,6 +25,7 @@ import { RetentionService } from './ops/retention.js';
 import { StyleLearner } from './learning/styleLearner.js';
 import { WebResearch } from './research/web.js';
 import { TwilioSms } from './connectors/sms/twilio.js';
+import { BlueBubblesIMessage } from './connectors/imessage/bluebubbles.js';
 import { ChainedVoice } from './voice/chained.js';
 import { CostLedger, DEFAULT_PRICING, MeteredModel, MeteredToolModel, type Pricing } from './ops/costs.js';
 import { FeedbackStore, ModelRegistry, type FeedbackKind } from './learning/feedback.js';
@@ -108,6 +109,12 @@ export function createJennifer(opts: JenniferOptions = {}) {
   for (const c of opts.emailConnectors ?? [new FakeEmailProvider('gmail')]) emailConnectors.set(c.id, c);
   const smsCfg = config.sms;
   const sms = smsCfg.accountSid && smsCfg.authToken && smsCfg.from ? new TwilioSms({ accountSid: smsCfg.accountSid, authToken: smsCfg.authToken, from: smsCfg.from, apiBase: smsCfg.apiBase, fetchImpl: opts.fetchImpl }) : undefined;
+  const im = config.imessage;
+  const imessage = im.url && im.password ? new BlueBubblesIMessage({ url: im.url, password: im.password, method: im.method, fetchImpl: opts.fetchImpl }) : undefined;
+  if (imessage) {
+    emailConnectors.set(imessage.id, imessage);
+    capabilities.markConnected('imessage', imessage.accountId, 'Your iMessage (via your Mac)');
+  }
   if (sms) {
     emailConnectors.set(sms.id, sms);
     capabilities.markConnected('sms', sms.accountId, smsCfg.from);
@@ -399,6 +406,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     feedback,
     styleLearner,
     sms,
+    imessage,
     chainedVoice,
     costs,
     metrics,

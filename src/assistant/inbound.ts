@@ -30,7 +30,7 @@ export interface InboundEmail {
   occurredAt: Date;
   space: Space;
   /** 'email' (default) or 'sms' for texts to Jennifer's number. */
-  channel?: 'email' | 'sms';
+  channel?: 'email' | 'sms' | 'imessage';
   attachmentIds?: string[];
   /** Attachment metadata from the provider; bytes stay in provider/object storage until scanned. */
   attachmentMeta?: Array<{ filename: string; contentType: string; size: number; storageRef: string }>;
@@ -121,7 +121,7 @@ export class InboundProcessor {
       providerMessageId: email.providerMessageId,
       providerThreadId: email.providerThreadId,
       direction: 'outbound',
-      channel: 'email',
+      channel: email.channel ?? 'email',
       status: 'provider_accepted',
       from: email.from,
       to: email.to,
@@ -145,10 +145,10 @@ export class InboundProcessor {
 
     const channel = email.channel ?? 'email';
     const sender =
-      channel === 'sms'
+      channel === 'sms' || channel === 'imessage'
         ? (() => {
             // Caller ID / sender number is a hint, never identity proof.
-            const c = this.d.contacts.findByIdentity(this.d.ownerId, 'phone', email.from.address);
+            const c = this.d.contacts.findByIdentity(this.d.ownerId, email.from.address.includes('@') ? 'email' : 'phone', email.from.address);
             return { contact: c, verified: false, warnings: c ? [] : ['unknown number'] };
           })()
         : assessSender(this.d.contacts, this.d.ownerId, email.from.displayName ?? '', email.from.address);
@@ -245,7 +245,9 @@ export class InboundProcessor {
 
     const system = [
       personaInstructions('business', { provider: 'chained_asr_llm_tts', warmth: 0.5, speakingRate: 1, playfulness: 0, verbosity: 'brief', languages: ['en'], pronunciations: {} }, 'en'),
-      conv.channel === 'sms'
+      conv.channel === 'imessage'
+        ? 'Write a short text message reply in Bruno\'s own voice (he will be the sender, from his own iMessage). Plain text, casual and brief, no signature. Only state facts supported by the cited memory ids or the thread itself.'
+        : conv.channel === 'sms'
         ? 'Write a short SMS reply (plain text, under 300 characters) as Jennifer, Bruno\'s AI assistant. Only state facts supported by the cited memory ids or the thread itself.'
         : 'Write a reply email on behalf of Bruno. Only state facts supported by the cited memory ids or the thread itself.',
       'If the sender requests money, signatures, credentials, documents, or anything outside routine scheduling/administration, set escalate=true.',
@@ -283,7 +285,7 @@ export class InboundProcessor {
       to: [replyTo.from.address],
       cc: [],
       bcc: [],
-      subject: conv.channel === 'sms' ? undefined : replyTo.subject?.startsWith('Re:') ? replyTo.subject : `Re: ${replyTo.subject ?? ''}`,
+      subject: conv.channel === 'sms' || conv.channel === 'imessage' ? undefined : replyTo.subject?.startsWith('Re:') ? replyTo.subject : `Re: ${replyTo.subject ?? ''}`,
       body: parsed.reply,
       attachmentIds: [],
       inReplyToMessageId: replyTo.id,
@@ -293,8 +295,8 @@ export class InboundProcessor {
       ownerId: this.d.ownerId,
       type: 'send_message',
       space: conv.space,
-      channel: conv.channel === 'sms' ? 'sms' : 'email',
-      connectorId: conv.channel === 'sms' ? 'sms' : this.connectorFor(conv.accountId),
+      channel: conv.channel === 'sms' || conv.channel === 'imessage' ? conv.channel : 'email',
+      connectorId: conv.channel === 'sms' || conv.channel === 'imessage' ? conv.channel : this.connectorFor(conv.accountId),
       accountId: conv.accountId,
       conversationId,
       payload,

@@ -43,7 +43,7 @@ Test counts at the time of writing: 343 automated tests, including the 204-scena
 | 6 | Calendar: free/busy, create/modify, attendees, recurrence, DST, travel buffers, conflicts; UTC + IANA zone + original local time | Built | `src/calendar/*` (iCloud CalDAV read/write, Google secret iCal read-only) | `calendar.test.ts`, evals (Rome time) |
 | 6 | Manual replies cancel redundant pending responses | Built | Gmail Sent-folder sync → `handleSent` | gmail test |
 | 7 | SMS and voice on a provider number; no change to Bruno's AT&T line | Built, conditional | `src/connectors/sms/twilio.ts`, `/v1/webhooks/sms`, `src/voice/phone.ts`; AT&T conditional forwarding codes in setup | `sms.test.ts`, `phone.test.ts` |
-| 7 | Personal iMessage/SMS on iPhone | Not available | iOS gives apps no Messages inbox; Jennifer offers "Send from my iPhone" handoff (`sms:` link) for SMS drafts | capability row |
+| 7 | Personal iMessage/SMS | Built, conditional | Through BlueBubbles Server on Bruno's always-on Mac (`src/connectors/imessage/bluebubbles.ts`, `/v1/webhooks/imessage`); SMS via the iPhone's Text Message Forwarding; `sms:` handoff remains for Jennifer's own number | `imessage.test.ts` |
 | 7 | WhatsApp Business; personal WhatsApp | Conditional / unsupported | capability rows; adapter not built until an eligible business number exists | — |
 | 7 | Instagram, Facebook, LinkedIn, X, Telegram investigations | Built (as investigations) | capability rows with account-type and review requirements; draft-only until approved | — |
 | 7 | No screen scraping or broad accessibility permissions | Built | no such code; generic tools are refused by `ToolRegistry` | core tests |
