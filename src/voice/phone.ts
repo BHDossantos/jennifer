@@ -128,6 +128,8 @@ export class PhoneService {
     await this.d.settings.set('call_log', all.slice(0, 200));
   }
 
+  private seenWebhooks = new Map<string, number>();
+
   private event(rec: CallRecord, text: string) {
     rec.events.push({ at: this.d.clock.now().toISOString(), text });
   }
@@ -136,6 +138,12 @@ export class PhoneService {
   async handleWebhook(rawBody: string, headers: Record<string, string | undefined>): Promise<{ handled: boolean; callId?: string; action?: 'accepted' | 'rejected' }> {
     if (!this.configured) throw new JenniferError('phone.not_configured', 'Phone needs OPENAI_API_KEY and OPENAI_WEBHOOK_SECRET');
     verifyStandardWebhook(rawBody, headers, this.d.webhookSecret!, this.d.clock.now());
+    // A valid signature can be replayed within the tolerance window: process each webhook id once.
+    const wid = headers['webhook-id']!;
+    const nowMs = this.d.clock.now().getTime();
+    for (const [k, at] of this.seenWebhooks) if (nowMs - at > 600_000) this.seenWebhooks.delete(k);
+    if (this.seenWebhooks.has(wid)) return { handled: false };
+    this.seenWebhooks.set(wid, nowMs);
     const ev = JSON.parse(rawBody) as { type: string; data?: { call_id: string; sip_headers?: Array<{ name: string; value: string }> } };
     if (ev.type !== 'realtime.call.incoming' || !ev.data) return { handled: false };
     const callId = ev.data.call_id;

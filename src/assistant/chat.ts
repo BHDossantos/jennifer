@@ -14,7 +14,6 @@ import { personaInstructions, DEFAULT_VOICE, type DeliveryMode } from '../voice/
  * anything else (e.g. inspired by an email) waits for review.
  */
 const CHAT_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'get_calendar', 'find_free_slots', 'propose_event'];
-const UNTRUSTED_OUTPUT = new Set(['search_messages', 'read_thread', 'retrieve_memory']);
 const MAX_HISTORY = 40;
 
 interface ChatSession {
@@ -53,6 +52,7 @@ export class ChatService {
     specs.push({ name: 'remember', description: 'Save something Bruno told you to memory. Quote his exact words.', parameters: rememberParams });
 
     const norm = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').trim();
+    let tainted = false;
     const result = await runAgentLoop({
       model: this.d.model,
       modelName: this.d.modelName,
@@ -70,7 +70,9 @@ export class ChatService {
       exec: async (name, args) => {
         if (name === 'remember') {
           const a = Remember.parse(args);
-          const fromBruno = norm(s.lastUserText).includes(norm(a.quote));
+          // Direct saves need a real quote of this message that actually states the fact,
+          // and never after third-party content entered this turn (it could have steered the model).
+          const fromBruno = !tainted && quoteSupportsFact(norm(s.lastUserText), norm(a.quote), norm(a.fact));
           const entry = this.d.memory.add({
             ownerId: this.d.ownerId,
             kind: a.kind,
@@ -89,7 +91,9 @@ export class ChatService {
           return JSON.stringify(fromBruno ? { saved: true } : { saved: false, pendingReview: true, why: 'Only Bruno’s own words are saved directly; this waits for his review.' });
         }
         const out = JSON.stringify(await this.d.tools.invoke(name, args, ctx));
-        return UNTRUSTED_OUTPUT.has(name) ? renderUntrusted(wrapUntrusted(`tool:${name}`, out), newId('n').slice(2, 10)) : out;
+        // Every tool result can carry text written by someone else (mail, invites, notes).
+        tainted = true;
+        return renderUntrusted(wrapUntrusted(`tool:${name}`, out), newId('n').slice(2, 10));
       },
     });
     s.history = (result.history ?? []).slice(-MAX_HISTORY);
@@ -105,3 +109,18 @@ export class ChatService {
     this.sessions.delete(sessionId);
   }
 }
+
+/**
+ * True when `quote` appears in Bruno's message and carries the fact: the
+ * quote must be substantial and contain most of the fact's content words.
+ */
+export function quoteSupportsFact(message: string, quote: string, fact: string): boolean {
+  if (quote.length < 8 || !message.includes(quote)) return false;
+  const words = (t: string) => t.split(/[^\p{L}\p{N}@.]+/u).filter((w) => w.length >= 4);
+  const factWords = words(fact).filter((w) => w !== 'bruno' && w !== "bruno's" && w !== 'bruno’s');
+  if (factWords.length === 0) return quote.includes(fact);
+  const q = new Set(words(quote));
+  const hit = factWords.filter((w) => q.has(w) || [...q].some((x) => x.startsWith(w.slice(0, 5)))).length;
+  return hit / factWords.length >= 0.5;
+}
+

@@ -70,7 +70,7 @@ async function setup() {
   const db = await pgliteDb();
   const clock = new FakeClock('2026-10-19T07:00:00Z');
   const j = await createDurableJennifer({ db, clock, emailConnectors: [new FakeEmailProvider()], config: { ownerId: 'bruno', homeTimeZone: 'Europe/Rome' } });
-  const cals = new CalendarConnections({ db, vault: new Vault(db, new LocalKeyWrapper(new Map([[1, randomBytes(32)]]))), clock, audit: j.audit, capabilities: j.capabilities, calendar: j.calendar, ownerId: 'bruno', environment: 'test', caldavBase: BASE, fetchImpl: feedFetch });
+  const cals = new CalendarConnections({ db, vault: new Vault(db, new LocalKeyWrapper(new Map([[1, randomBytes(32)]]))), clock, audit: j.audit, capabilities: j.capabilities, calendar: j.calendar, ownerId: 'bruno', environment: 'test', caldavBase: BASE, fetchImpl: feedFetch, resolve: async () => ['142.250.1.1'] });
   const ctx = { ownerId: 'bruno', role: 'chat', allowedTools: new Set(['get_calendar', 'find_free_slots', 'propose_event']), scopes: new Set(['calendar:read', 'calendar:propose']) };
   return { db, j, cals, dav, clock, ctx };
 }

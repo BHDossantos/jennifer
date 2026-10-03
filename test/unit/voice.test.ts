@@ -76,7 +76,8 @@ describe('Jennifer voice', () => {
     const { app, auth } = setup();
     const brief = (await app.inject({ method: 'POST', url: '/v1/voice/tools/get_today_brief', headers: auth, payload: { arguments: '{}' } })).json();
     expect(brief.ok).toBe(true);
-    expect(brief.result.connectorHealth).toBeDefined();
+    expect(brief.result).toMatch(/connectorHealth/);
+    expect(brief.result).toMatch(/^<untrusted-/); // third-party text is labeled for the realtime model
     const send = (await app.inject({ method: 'POST', url: '/v1/voice/tools/send_message', headers: auth, payload: { arguments: { to: ['x@y.z'], body: 'hi' } } })).json();
     expect(send).toMatchObject({ ok: false });
     expect((await app.inject({ method: 'POST', url: '/v1/voice/tools/get_today_brief', payload: {} })).statusCode).toBe(401);

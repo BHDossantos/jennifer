@@ -63,7 +63,15 @@ export function parseIcs(text: string, window: { from: Date; to: Date }, fallbac
   return out.sort((a, b) => a.startUtc.localeCompare(b.startUtc));
 }
 
-const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+// RFC 5545 TEXT escaping; any CR/LF becomes \n and other control characters are dropped so a title can never start a new property.
+const esc = (s: string) =>
+  s
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r\n|\r|\n/g, '\\n')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
 const utcStamp = (iso: string) => iso.replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 
 /** Fold long content lines at 75 octets (RFC 5545 §3.1). */

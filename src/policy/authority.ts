@@ -149,8 +149,15 @@ export class AuthorityRegistry {
     if (candidates.length === 0) {
       return { outcome: 'ask', policyVersion: this.version, reasons: ['no active standing instruction covers this action'] };
     }
-    candidates.sort((a, b) => specificity(b) - specificity(a) || restrictiveness(b.mode) - restrictiveness(a.mode));
-    const rule = candidates[0]!;
+    const best = (rs: AuthorityRule[]) => [...rs].sort((a, b) => specificity(b) - specificity(a) || restrictiveness(b.mode) - restrictiveness(a.mode))[0];
+    // A workflow's (mission's) own rules govern its actions; a more specific
+    // general rule (e.g. a contact template) may restrict them but never widen them.
+    const scoped = req.workflowId ? candidates.filter((r) => r.scope.workflowIds?.includes(req.workflowId!)) : [];
+    let rule = best(scoped.length ? scoped : candidates)!;
+    if (scoped.length) {
+      const general = best(candidates.filter((r) => !r.scope.workflowIds));
+      if (general && restrictiveness(general.mode) > restrictiveness(rule.mode)) rule = general;
+    }
     let outcome = MODE_TO_OUTCOME[rule.mode];
 
     if (outcome === 'execute') {

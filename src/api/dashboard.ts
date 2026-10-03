@@ -86,9 +86,11 @@ async function stepUp() {
   const o = await api('/v1/auth/step-up/options', { method: 'POST', body: '{}' });
   await api('/v1/auth/step-up/verify', { method: 'POST', body: JSON.stringify({ handle: o.handle, response: await passkeyGet(o.options) }) });
 }
-const api = async (path, opts = {}) => {
+const api = async (path, opts = {}, retried = false) => {
   const r = await fetch(path, { ...opts, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token, ...(opts.headers || {}) } });
   const body = await r.json().catch(() => ({}));
+  // Sensitive changes ask for a fresh passkey confirmation; do it once and retry.
+  if (!r.ok && body.error === 'approval.step_up_required' && !retried && !path.startsWith('/v1/auth/step-up')) { await stepUp(); return api(path, opts, true); }
   if (!r.ok) throw new Error(body.message || body.error || r.status);
   return body;
 };

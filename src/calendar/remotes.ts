@@ -4,7 +4,7 @@ import type { Db } from '../db/db.js';
 import type { Vault } from '../identity/vault.js';
 import type { AuditLog } from '../audit/audit.js';
 import type { CapabilityRegistry } from '../connectors/capabilities.js';
-import { isAllowedEgress } from '../security/untrusted.js';
+import { isAllowedEgress, safeFetchText } from '../security/untrusted.js';
 import { CalDavAuthError, CalDavClient, ICLOUD_CALDAV, type CalDavCalendar } from './caldav.js';
 import { buildIcs, parseIcs } from './ics.js';
 import type { CalendarEvent, CalendarService, RemoteCalendar } from './calendar.js';
@@ -65,13 +65,19 @@ export class IcsFeedRemote implements RemoteCalendar {
     readonly label: string,
     private url: string,
     private fetchImpl: typeof fetch = fetch,
+    /** DNS resolution override (tests); production resolves and rejects private addresses. */
+    private resolve?: (host: string) => Promise<string[]>,
   ) {}
 
   async list(from: Date, to: Date): Promise<CalendarEvent[]> {
-    const res = await this.fetchImpl(this.url, { headers: { accept: 'text/calendar' } });
-    if (!res.ok) throw new JenniferError('calendar.feed_error', `Calendar feed returned ${res.status}`);
-    const text = await res.text();
-    if (text.length > 20 * 1024 * 1024) throw new JenniferError('calendar.feed_too_large', 'Calendar feed is too large');
+    let res;
+    try {
+      res = await safeFetchText(this.url, { headers: { accept: 'text/calendar' }, maxBytes: 20 * 1024 * 1024, fetchImpl: this.fetchImpl, resolve: this.resolve });
+    } catch (e) {
+      throw new JenniferError('calendar.feed_error', `Calendar feed could not be read: ${(e as Error).message}`);
+    }
+    if (res.status < 200 || res.status >= 300) throw new JenniferError('calendar.feed_error', `Calendar feed returned ${res.status}`);
+    const text = res.text;
     return toEvents(this.id, 'primary', parseIcs(text, { from, to }));
   }
 
@@ -101,6 +107,7 @@ export class CalendarConnections {
       environment: string;
       caldavBase?: string;
       fetchImpl?: typeof fetch;
+      resolve?: (host: string) => Promise<string[]>;
     },
   ) {}
 
@@ -134,7 +141,7 @@ export class CalendarConnections {
     const u = url.trim().replace(/^webcal:/i, 'https:');
     if (!/^https:\/\//i.test(u) || !isAllowedEgress(u)) throw new JenniferError('calendar.bad_url', 'Use the https secret iCal address');
     const id = `ics:${Buffer.from(u).toString('base64url').slice(-16)}`;
-    const remote = new IcsFeedRemote(id, label, u, this.d.fetchImpl);
+    const remote = new IcsFeedRemote(id, label, u, this.d.fetchImpl, this.d.resolve);
     const events = await remote.list(this.d.clock.now(), new Date(this.d.clock.now().getTime() + 7 * 24 * 3600_000)); // validate before saving
     await this.d.vault.put(id, JSON.stringify({ url: u, label }), this.binding(id));
     await this.save(id, 'google_calendar_ics', label);
@@ -156,7 +163,7 @@ export class CalendarConnections {
       const secret = JSON.parse(await this.d.vault.get(r.id, this.binding(r.id)));
       if (r.connector_id === 'icloud_calendar') this.attachICloud(r.id, secret.username, secret.password, secret.calendarUrl, secret.label);
       else {
-        this.d.calendar.attach(new IcsFeedRemote(r.id, secret.label, secret.url, this.d.fetchImpl));
+        this.d.calendar.attach(new IcsFeedRemote(r.id, secret.label, secret.url, this.d.fetchImpl, this.d.resolve));
         this.d.capabilities.markConnected('google_calendar_ics', r.id, secret.label);
       }
     }

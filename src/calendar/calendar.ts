@@ -248,7 +248,9 @@ export class CalendarActionHandler implements ActionHandler<CalendarActionPayloa
     const conflicts = this.calendar.conflicts(ev.calendarId, start, end, ev.travelBufferMin ?? 0, intent.payload.replacesEventId ?? ev.id);
     if (conflicts.length) violations.push(`conflicts with ${conflicts.map((c) => c.eventId).join(', ')}`);
     const contactIds: string[] = [];
+    if (ev.attendees.length > 20) violations.push('too many attendees');
     for (const a of ev.attendees) {
+      if (!/^[^@\s<>,;"]+@[^@\s<>,;"]+\.[a-z]{2,}$/i.test(a)) violations.push(`attendee ${a} is not a valid email address`);
       const c = this.contacts.findByIdentity(intent.ownerId, 'email', a);
       if (!c) concerns.push(`attendee ${a} is not a known contact`);
       else contactIds.push(c.id);

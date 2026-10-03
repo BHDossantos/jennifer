@@ -46,8 +46,16 @@ export class CalDavClient {
     return res;
   }
 
+  /**
+   * Resolve a server-supplied href. Credentials are only ever sent to the
+   * configured server or to Apple's iCloud CalDAV hosts (partition redirects).
+   */
   private abs(href: string): string {
-    return new URL(href, this.o.baseUrl).toString();
+    const u = new URL(href, this.o.baseUrl);
+    const base = new URL(this.o.baseUrl);
+    const ok = u.host === base.host || (u.protocol === 'https:' && /(^|\.)icloud\.com$/i.test(u.hostname) && /(^|\.)icloud\.com$/i.test(base.hostname));
+    if (!ok) throw new JenniferError('calendar.dav_bad_href', `Calendar server pointed to an unexpected host (${u.host})`);
+    return u.toString();
   }
 
   private async propfind(url: string, depth: '0' | '1', props: string): Promise<any[]> {

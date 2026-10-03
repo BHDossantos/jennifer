@@ -317,3 +317,31 @@ describe('contacts learned from approvals', () => {
     expect(h.j.contacts.list('bruno').length).toBe(before);
   });
 });
+
+describe('security hardening', () => {
+  it('blocks mapped, CGNAT, metadata and unspecified addresses', async () => {
+    const { isPrivateAddress } = await import('../../src/security/untrusted.js');
+    for (const u of ['http://[::ffff:127.0.0.1]/', 'http://[::ffff:7f00:1]/', 'http://[::]/', 'http://100.100.100.200/', 'http://0.0.0.0/', 'http://user:pw@example.com/'])
+      expect(isAllowedEgress(u), u).toBe(false);
+    expect(isPrivateAddress('8.8.8.8')).toBe(false);
+    expect(isPrivateAddress('fe80::1')).toBe(true);
+  });
+
+  it('safeFetchText rejects hosts resolving to private addresses and re-checks redirects', async () => {
+    const { safeFetchText } = await import('../../src/security/untrusted.js');
+    const fetchImpl = (async (url: string) =>
+      url.includes('redirect') ? new Response('', { status: 302, headers: { location: 'http://169.254.169.254/latest' } }) : new Response('ok', { status: 200 })) as unknown as typeof fetch;
+    await expect(safeFetchText('https://evil.test/a', { fetchImpl, resolve: async () => ['10.0.0.5'] })).rejects.toThrow(/private/);
+    await expect(safeFetchText('https://ok.test/redirect', { fetchImpl, resolve: async () => ['93.184.216.34'] })).rejects.toThrow(/not allowed/);
+    expect((await safeFetchText('https://ok.test/a', { fetchImpl, resolve: async () => ['93.184.216.34'] })).text).toBe('ok');
+    await expect(safeFetchText('https://ok.test/a', { fetchImpl, maxBytes: 1, resolve: async () => ['93.184.216.34'] })).rejects.toThrow(/too large/);
+  });
+
+  it('chat memory quotes must carry the fact', async () => {
+    const { quoteSupportsFact } = await import('../../src/assistant/chat.js');
+    const msg = 'please remember that my dentist is dr. rossi in milan';
+    expect(quoteSupportsFact(msg, 'my dentist is dr. rossi in milan', 'bruno’s dentist is dr. rossi in milan')).toBe(true);
+    expect(quoteSupportsFact(msg, 'that', 'bruno wants all invoices paid automatically')).toBe(false);
+    expect(quoteSupportsFact(msg, 'please remember that', 'bruno wants all invoices paid automatically')).toBe(false);
+  });
+});

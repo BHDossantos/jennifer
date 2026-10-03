@@ -193,7 +193,10 @@ export class InboundProcessor {
       .slice(-6)
       .map((m) => renderUntrusted(wrapUntrusted(`${m.direction}:${m.id} from ${m.from.address}`, `Subject: ${m.subject ?? ''}\n${m.body}`), nonce))
       .join('\n');
-    const memoryBlock = memories.map((r) => `[${r.entry.id}] (${r.freshness}; source ${r.sourceRef}) ${r.entry.value}`).join('\n') || '(no relevant memory)';
+    // Memory can hold text that originally came from other people (imports, inferences): label it.
+    const memoryBlock = memories.length
+      ? renderUntrusted(wrapUntrusted('memory', memories.map((r) => `[${r.entry.id}] (${r.freshness}; source ${r.sourceRef}) ${r.entry.value}`).join('\n')), nonce)
+      : '(no relevant memory)';
 
     const system = [
       personaInstructions('business', { provider: 'chained_asr_llm_tts', warmth: 0.5, speakingRate: 1, playfulness: 0, verbosity: 'brief', languages: ['en'], pronunciations: {} }, 'en'),

@@ -1,3 +1,5 @@
+import { newId } from '../core/util.js';
+import { renderUntrusted, wrapUntrusted } from '../security/untrusted.js';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { timingSafeEqual, createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -162,11 +164,26 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
 
   // ---- Identity: passkeys, step-up, devices ---------------------------------
+  /** Sensitive changes (accounts, authority, devices, passkeys): passkey step-up, or the bootstrap token in development only. */
+  const requireSensitive = (req: FastifyRequest) => {
+    if (req.session) {
+      if (!opts.identity?.hasRecentStepUp(req.session)) throw new JenniferError('approval.step_up_required', 'Confirm with your passkey first');
+      return;
+    }
+    if (j.config.env !== 'development') throw new JenniferError('identity.session_required', 'Sign in with a passkey to connect accounts');
+  };
   const DeviceInfo = z.object({ platform: z.string().max(40), osVersion: z.string().max(40).optional(), label: z.string().max(80).optional() });
-  app.post('/v1/auth/passkeys/register/options', owner, async () => requireIdentity().registrationOptions(j.ownerId, j.ownerId));
+  /** The first passkey is enrolled with the bootstrap token; every later one needs a signed-in, stepped-up session. */
+  const registrationSession = async (req: FastifyRequest): Promise<string | undefined> => {
+    if (!(await requireIdentity().hasPasskey(j.ownerId))) return req.session?.idHash;
+    if (!req.session) throw new JenniferError('identity.session_required', 'Sign in with your existing passkey to add another device');
+    requireSensitive(req);
+    return req.session.idHash;
+  };
+  app.post('/v1/auth/passkeys/register/options', owner, async (req) => requireIdentity().registrationOptions(j.ownerId, j.ownerId, await registrationSession(req)));
   app.post('/v1/auth/passkeys/register/verify', owner, async (req) => {
     const b = z.object({ handle: z.string(), response: z.any(), device: DeviceInfo }).parse(req.body);
-    return requireIdentity().verifyRegistration(b.handle, b.response, b.device);
+    return requireIdentity().verifyRegistration(b.handle, b.response, b.device, await registrationSession(req));
   });
   app.post('/v1/auth/passkeys/login/options', async () => requireIdentity().loginOptions(j.ownerId));
   app.post('/v1/auth/passkeys/login/verify', async (req) => {
@@ -185,6 +202,8 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
   app.get('/v1/devices', owner, async () => requireIdentity().devices(j.ownerId));
   app.delete('/v1/devices/:id', owner, async (req) => {
+    // Sessions need a fresh passkey; the bootstrap token stays a break-glass path for a stolen phone.
+    if (req.session) requireSensitive(req);
     await requireIdentity().revokeDevice(j.ownerId, z.object({ id: z.string() }).parse(req.params).id, j.ownerId);
     return { revoked: true };
   });
@@ -236,7 +255,9 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     const b = z.object({ arguments: z.union([z.string(), z.record(z.string(), z.unknown())]).default({}) }).parse(req.body ?? {});
     const args = typeof b.arguments === 'string' ? JSON.parse(b.arguments || '{}') : b.arguments;
     try {
-      return { ok: true, result: await j.tools.invoke(name, args, voiceCtx) };
+      // The realtime model receives this verbatim: label third-party content as untrusted.
+      const out = JSON.stringify(await j.tools.invoke(name, args, voiceCtx));
+      return { ok: true, result: renderUntrusted(wrapUntrusted(`tool:${name}`, out), newId('n').slice(2, 10)) };
     } catch (e) {
       return { ok: false, error: e instanceof JenniferError ? e.message : 'Tool failed' };
     }
@@ -299,14 +320,6 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
 
   // ---- Connectors: Gmail ----------------------------------------------------
-  /** Connecting accounts is security-sensitive: passkey step-up, or the bootstrap token in development only. */
-  const requireSensitive = (req: FastifyRequest) => {
-    if (req.session) {
-      if (!opts.identity?.hasRecentStepUp(req.session)) throw new JenniferError('approval.step_up_required', 'Confirm with your passkey first');
-      return;
-    }
-    if (j.config.env !== 'development') throw new JenniferError('identity.session_required', 'Sign in with a passkey to connect accounts');
-  };
   const requireGmail = () => {
     if (!opts.gmail) throw new JenniferError('gmail.not_configured', 'Gmail needs the durable database and a vault key');
     return opts.gmail;
@@ -355,6 +368,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   // ---- Authority registry --------------------------------------------------
   app.get('/v1/authority', owner, async () => j.authority.list());
   app.post('/v1/authority', owner, async (req) => {
+    requireSensitive(req);
     const b = z
       .object({
         action: z.enum(ACTION_TYPES),
@@ -368,6 +382,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     return j.authority.grant({ ...b, principal: j.ownerId });
   });
   app.post('/v1/authority/templates/:templateId', owner, async (req) => {
+    requireSensitive(req);
     const { templateId } = z.object({ templateId: z.string() }).parse(req.params);
     const b = z
       .object({

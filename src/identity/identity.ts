@@ -55,7 +55,12 @@ export class IdentityService {
 
   // ---- Passkey registration (from an authenticated owner context) --------
 
-  async registrationOptions(ownerId: string, userName: string) {
+  /**
+   * Once a passkey exists, adding another one is a step-up action bound to
+   * the requesting session (the caller enforces the step-up; the challenge
+   * remembers the session so it cannot be completed from another one).
+   */
+  async registrationOptions(ownerId: string, userName: string, sessionHash?: string) {
     const existing = await this.credentials(ownerId);
     const opts = await generateRegistrationOptions({
       rpName: this.cfg.rpName,
@@ -66,12 +71,13 @@ export class IdentityService {
       excludeCredentials: existing.map((c) => ({ id: c.id, transports: c.transports as never })),
       authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
     });
-    const handle = this.remember(opts.challenge, ownerId, 'register');
+    const handle = this.remember(opts.challenge, ownerId, 'register', sessionHash);
     return { handle, options: opts };
   }
 
-  async verifyRegistration(handle: string, response: RegistrationResponseJSON, device: { platform: string; osVersion?: string; label?: string }) {
+  async verifyRegistration(handle: string, response: RegistrationResponseJSON, device: { platform: string; osVersion?: string; label?: string }, sessionHash?: string) {
     const ch = this.consume(handle, 'register');
+    if (ch.sessionHash !== sessionHash) throw new JenniferError('identity.challenge_mismatch', 'Registration challenge belongs to another session');
     const v = await verifyRegistrationResponse({
       response,
       expectedChallenge: ch.challenge,
@@ -240,6 +246,10 @@ export class IdentityService {
   }
 
   private remember(challenge: string, ownerId: string, kind: 'register' | 'login' | 'step_up', sessionHash?: string): string {
+    // Unauthenticated login options must not grow memory without bound.
+    const now = this.clock.now().getTime();
+    for (const [h, c] of this.challenges) if (c.expires < now) this.challenges.delete(h);
+    if (this.challenges.size >= 1000) this.challenges.delete(this.challenges.keys().next().value!);
     const handle = newId('chal');
     this.challenges.set(handle, { challenge, ownerId, kind, sessionHash, expires: this.clock.now().getTime() + 5 * 60_000 });
     return handle;

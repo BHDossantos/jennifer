@@ -61,11 +61,21 @@ describe('Missions (always-on agents)', () => {
 
   it('"ask" and "hand_over" never send without Bruno; mission rules do not leak outside the mission', async () => {
     for (const level of ['ask', 'hand_over'] as const) {
-      const { j } = setup(({ step }) => (step === 1 ? [call('propose_email', { to: ['marco@bianchi.test'], subject: 'x', body: 'y' })] : [say('done')]));
+      // hand_over missions only get draft_email; a model calling propose_email gets "not available".
+      const tool = level === 'ask' ? 'propose_email' : 'draft_email';
+      const { j } = setup(({ step }) => (step === 1 ? [call(tool, { to: ['marco@bianchi.test'], subject: 'x', body: 'y' })] : [say('done')]));
       const m = await j.missions.create({ title: 'Mission', goal: 'Reply to Marco', autonomy: { send_email: level } }, 'bruno');
       const after = await j.missions.run(m.id, 'work', 'test');
       expect(j.actions.get(after.results[0]!.proposedActionIds[0]!).state).toBe('awaiting_decision');
     }
+    // A more specific general rule (contact template "execute") must not widen a hand_over mission.
+    const { j: j3 } = setup(({ step }) => (step === 1 ? [call('draft_email', { to: ['marco@bianchi.test'], subject: 'x', body: 'y' })] : [say('done')]));
+    const marco = j3.contacts.list('bruno').find((c) => c.identities.some((i) => i.value === 'marco@bianchi.test'));
+    expect(marco).toBeDefined();
+    if (marco) j3.authority.grant({ principal: 'bruno', action: 'send_message', mode: 'execute', scope: { contactIds: [marco.id] } });
+    const hm = await j3.missions.create({ title: 'Mission', goal: 'Reply to Marco', autonomy: { send_email: 'hand_over' } }, 'bruno');
+    const decision = j3.authority.evaluate({ action: 'send_message', accountId: ACCOUNT, space: 'personal', contactIds: marco ? [marco.id] : [], recipientDomains: ['bianchi.test'], workflowId: hm.id, attachmentSpaces: [], recipientCount: 1 });
+    expect(decision.outcome).toBe('draft_only');
     const { j } = setup(() => [say('x')]);
     await j.missions.create({ title: 'Mission', goal: 'Reply to Marco', autonomy: { send_email: 'act' } }, 'bruno');
     const outside = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'personal', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: { to: ['marco@bianchi.test'], cc: [], bcc: [], body: 'x', attachmentIds: [], evidence: [] }, proposedBy: 'jennifer' });
