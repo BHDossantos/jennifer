@@ -49,6 +49,8 @@ const LABELS: Record<string, string> = {
   read_thread: 'Reading a conversation',
   retrieve_memory: 'Checking what I know',
   get_today_brief: 'Looking at your day',
+  get_calendar: 'Checking your calendar',
+  find_free_slots: 'Looking for free time',
   list_pending_decisions: 'Checking what is waiting for you',
   save_note: 'Updating my notes',
   draft_email: 'Preparing a draft',
@@ -204,7 +206,7 @@ export class MissionService {
 
   /** Tools for this mission run: read tools by source; proposal tools only in work mode. */
   private toolbox(m: Mission, mode: RunMode, since: Date, proposed: string[], sources: Set<string>) {
-    const readCtx = { ownerId: this.d.ownerId, role: `mission:${m.id}`, allowedTools: new Set<string>(), scopes: new Set(['messages:read', 'memory:read', 'brief:read', 'actions:read']) };
+    const readCtx = { ownerId: this.d.ownerId, role: `mission:${m.id}`, allowedTools: new Set<string>(), scopes: new Set(['messages:read', 'memory:read', 'brief:read', 'actions:read', 'calendar:read']) };
     const specs: ToolSpec[] = [];
     const handlers = new Map<string, (args: any) => Promise<unknown>>();
     const fromRegistry = (name: string) => {
@@ -237,6 +239,10 @@ export class MissionService {
       fromRegistry('read_thread');
     }
     if (m.sources.includes('memory')) fromRegistry('retrieve_memory');
+    if (m.sources.includes('calendar')) {
+      fromRegistry('get_calendar');
+      fromRegistry('find_free_slots');
+    }
     if (m.sources.includes('brief')) {
       fromRegistry('get_today_brief');
       fromRegistry('list_pending_decisions');

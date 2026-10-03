@@ -116,7 +116,16 @@ const views = {
       <label>Gmail address <input id="gaddr" type="email" autocomplete="username" placeholder="you@gmail.com"></label>
       <label>App password <input id="gpass" type="password" autocomplete="off" placeholder="xxxx xxxx xxxx xxxx"></label>
       <div class="row"><button class="btn primary" data-gmail="connect">Connect Gmail</button><button class="btn" data-gmail="sync">Check now</button><button class="btn danger" data-gmail="disconnect">Disconnect</button></div></div>\`;
-    return gmailCard + (await api('/v1/connections')).map(c => \`<div class="card"><strong>\${esc(c.provider)}</strong> <span class="\${c.connected ? 'good' : 'bad'}">\${c.connected ? 'connected' : 'not connected'}</span>
+    const cal = await api('/v1/connectors/calendar').catch(() => ({ calendars: [] }));
+    const calCard = \`<div class="card"><strong>Calendars</strong> <span class="muted">\${esc(cal.calendars.map((c) => c.label + (c.writable ? '' : ' (read-only)')).join(', ') || 'none connected')}</span>
+      <p class="muted"><b>iCloud</b> (read and write): appleid.apple.com → Sign-In and Security → App-Specific Passwords → generate "Jennifer".</p>
+      <label>Apple ID <input id="capple" type="email" autocomplete="username"></label>
+      <label>App-specific password <input id="cpass" type="password" autocomplete="off" placeholder="xxxx-xxxx-xxxx-xxxx"></label>
+      <div class="row"><button class="btn primary" data-cal="icloud">Connect iCloud Calendar</button></div>
+      <p class="muted"><b>Google Calendar</b> (read-only): Google Calendar → Settings → your calendar → Integrate calendar → Secret address in iCal format.</p>
+      <label>Secret iCal address <input id="cfeed" type="url" autocomplete="off"></label>
+      <div class="row"><button class="btn" data-cal="feed">Add Google Calendar</button><button class="btn" data-cal="sync">Refresh now</button></div></div>\`;
+    return gmailCard + calCard + (await api('/v1/connections')).map(c => \`<div class="card"><strong>\${esc(c.provider)}</strong> <span class="\${c.connected ? 'good' : 'bad'}">\${c.connected ? 'connected' : 'not connected'}</span>
       <div class="muted">Monitoring: \${c.canMonitor ? 'yes' : 'no'} · Last sync: \${esc(c.lastSync || 'never')}</div>
       <div>Can: \${esc(c.actions.join(', ') || 'nothing yet')}</div><div class="muted">Unavailable: \${esc(c.unavailable.join(', '))}</div>
       \${c.problem ? '<div class="bad">' + esc(c.problem) + '</div>' : ''}</div>\`).join('');
@@ -244,6 +253,14 @@ document.addEventListener('click', async (e) => {
     return show('missions');
   }
   if (t.dataset.mresult) { const [id, rid, st] = t.dataset.mresult.split('|'); await api('/v1/missions/' + id + '/results/' + rid, { method: 'POST', body: JSON.stringify({ status: st }) }); return show('missions'); }
+  if (t.dataset.cal) {
+    const go = () => t.dataset.cal === 'icloud' ? api('/v1/connectors/icloud-calendar/connect', { method: 'POST', body: JSON.stringify({ appleId: $('#capple').value, appPassword: $('#cpass').value }) })
+      : t.dataset.cal === 'feed' ? api('/v1/connectors/calendar-feed/connect', { method: 'POST', body: JSON.stringify({ url: $('#cfeed').value }) })
+      : api('/v1/connectors/calendar/sync', { method: 'POST', body: '{}' });
+    try { await go(); } catch (err) { if (!/passkey/.test(err.message)) { $('#status').textContent = 'Calendar: ' + err.message; return; } await stepUp(); await go(); }
+    $('#status').textContent = 'Calendar: done';
+    return show('connections');
+  }
   if (t.dataset.gmail) {
     const go = async () => {
       if (t.dataset.gmail === 'connect') return api('/v1/connectors/gmail/connect', { method: 'POST', body: JSON.stringify({ address: $('#gaddr').value, appPassword: $('#gpass').value }) });

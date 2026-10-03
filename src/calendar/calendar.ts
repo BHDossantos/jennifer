@@ -25,6 +25,27 @@ export interface CalendarEvent {
   recurrence?: string; // RFC 5545 RRULE, expanded by the provider
   providerEventId?: string;
   idempotencyKey?: string;
+  /** Which calendar this came from (mirror of a remote), its UID and ETag. */
+  source?: string;
+  uid?: string;
+  etag?: string;
+  /** false = marked "free" (transparent): does not block time. */
+  busy?: boolean;
+}
+
+/**
+ * A real calendar Jennifer mirrors (iCloud CalDAV, a read-only iCal feed).
+ * The local store is the mirror used for conflict checks; writes go to
+ * the writable remote first.
+ */
+export interface RemoteCalendar {
+  id: string;
+  label: string;
+  writable: boolean;
+  list(from: Date, to: Date): Promise<CalendarEvent[]>;
+  /** Create or update by UID; 'exists' means a retried create already landed. */
+  upsert(ev: CalendarEvent, uid: string): Promise<{ status: 'created' | 'updated' | 'exists' | 'conflict'; etag?: string }>;
+  has(uid: string): Promise<boolean>;
 }
 
 export interface LocalTimeSpec {
@@ -79,10 +100,58 @@ export class FakeCalendarProvider {
 }
 
 export class CalendarService {
+  readonly remotes: RemoteCalendar[] = [];
+  lastSync?: Date;
+
   constructor(
     private clock: Clock,
     readonly provider: FakeCalendarProvider,
   ) {}
+
+  attach(remote: RemoteCalendar): void {
+    const i = this.remotes.findIndex((r) => r.id === remote.id);
+    if (i >= 0) this.remotes.splice(i, 1);
+    this.remotes.push(remote);
+  }
+
+  detach(id: string): void {
+    const i = this.remotes.findIndex((r) => r.id === id);
+    if (i >= 0) this.remotes.splice(i, 1);
+    for (const [k, e] of this.provider.events) if (e.source === id) this.provider.events.delete(k);
+  }
+
+  writer(): RemoteCalendar | undefined {
+    return this.remotes.find((r) => r.writable);
+  }
+
+  /** Refresh the mirror from every attached calendar (default window: yesterday → 60 days). */
+  async sync(from = new Date(this.clock.now().getTime() - 24 * 3600_000), to = new Date(this.clock.now().getTime() + 60 * 24 * 3600_000)): Promise<{ events: number; errors: string[] }> {
+    const errors: string[] = [];
+    let count = 0;
+    for (const r of this.remotes) {
+      let events: CalendarEvent[];
+      try {
+        events = await r.list(from, to);
+      } catch (e) {
+        errors.push(`${r.label}: ${(e as Error).message}`);
+        continue; // keep the previous mirror for this source rather than pretending it is empty
+      }
+      for (const [k, e] of this.provider.events) if (e.source === r.id) this.provider.events.delete(k);
+      for (const e of events) this.provider.events.set(e.id, { ...e, source: r.id });
+      count += events.length;
+    }
+    if (errors.length === 0) this.lastSync = this.clock.now();
+    return { events: count, errors };
+  }
+
+  /** Upcoming events in a zone-aware window (for briefs and chat). */
+  upcoming(hours = 24): CalendarEvent[] {
+    const now = DateTime.fromJSDate(this.clock.now());
+    const end = now.plus({ hours });
+    return [...this.provider.events.values()]
+      .filter((e) => DateTime.fromISO(e.endUtc) > now && DateTime.fromISO(e.startUtc) < end)
+      .sort((a, b) => a.startUtc.localeCompare(b.startUtc));
+  }
 
   get(id: string): CalendarEvent {
     const e = this.provider.events.get(id);
@@ -92,7 +161,7 @@ export class CalendarService {
 
   busy(calendarId: string, fromUtc: DateTime, toUtc: DateTime, excludeEventId?: string): Busy[] {
     return [...this.provider.events.values()]
-      .filter((e) => e.calendarId === calendarId && e.id !== excludeEventId)
+      .filter((e) => (e.calendarId === calendarId || !!e.source) && e.id !== excludeEventId && e.busy !== false)
       .map((e) => {
         const buf = e.travelBufferMin ?? 0;
         return {
@@ -209,7 +278,16 @@ export class CalendarActionHandler implements ActionHandler<CalendarActionPayloa
       ev.id = old.id;
       ev.providerEventId = old.providerEventId;
     }
+    const writer = this.calendar.writer();
     try {
+      if (writer) {
+        // The UID is the idempotency key for new events, or the existing event's UID when moving one.
+        const uid = intent.payload.replacesEventId ? (this.calendar.get(intent.payload.replacesEventId).uid ?? intent.idempotencyKey) : intent.idempotencyKey;
+        const r = await writer.upsert(ev, uid);
+        if (r.status === 'conflict') return { kind: 'rejected', error: 'the event changed in your calendar since Jennifer read it; review again', retryable: false };
+        await this.calendar.provider.upsert({ ...ev, uid, etag: r.etag, source: writer.id, providerEventId: uid });
+        return { kind: 'accepted', receipt: { providerEventId: uid, deliveryStatus: 'confirmed', evidence: `${writer.label} ${r.status === 'exists' ? 'already had' : 'stored'} the event` } };
+      }
       const r = await this.calendar.provider.upsert(ev);
       return { kind: 'accepted', receipt: { providerEventId: r.providerEventId, deliveryStatus: 'confirmed', evidence: 'calendar provider stored the event' } };
     } catch (e) {
@@ -218,6 +296,11 @@ export class CalendarActionHandler implements ActionHandler<CalendarActionPayloa
   }
 
   async reconcile(intent: ActionIntent<CalendarActionPayload>) {
+    const writer = this.calendar.writer();
+    if (writer && !intent.payload.replacesEventId) {
+      if (!(await writer.has(intent.idempotencyKey))) return { found: false as const };
+      return { found: true as const, receipt: { providerEventId: intent.idempotencyKey, deliveryStatus: 'confirmed' as const, evidence: `found in ${writer.label} during reconciliation` } };
+    }
     const found = await this.calendar.provider.findByIdempotencyKey(intent.idempotencyKey);
     if (!found) return { found: false as const };
     return { found: true as const, receipt: { providerEventId: found.providerEventId, deliveryStatus: 'confirmed' as const, evidence: 'found during reconciliation' } };

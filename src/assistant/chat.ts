@@ -13,7 +13,7 @@ import { personaInstructions, DEFAULT_VOICE, type DeliveryMode } from '../voice/
  * Bruno states are remembered only when the memory quotes his own words;
  * anything else (e.g. inspired by an email) waits for review.
  */
-const CHAT_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft'];
+const CHAT_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'get_calendar', 'find_free_slots', 'propose_event'];
 const UNTRUSTED_OUTPUT = new Set(['search_messages', 'read_thread', 'retrieve_memory']);
 const MAX_HISTORY = 40;
 
@@ -38,7 +38,7 @@ export class ChatService {
     const remembered: string[] = [];
     const pendingReview: string[] = [];
 
-    const ctx: ToolContext = { ownerId: this.d.ownerId, role: 'chat', allowedTools: new Set(CHAT_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose']) };
+    const ctx: ToolContext = { ownerId: this.d.ownerId, role: 'chat', allowedTools: new Set(CHAT_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose']) };
     const specs: ToolSpec[] = this.d.tools.forRole(ctx).map((t) => {
       const { $schema: _s, ...parameters } = t.schema as Record<string, unknown>;
       return { name: t.name, description: t.description, parameters };

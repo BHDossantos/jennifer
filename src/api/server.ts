@@ -13,6 +13,7 @@ import { PrefsSchema, PushSubscriptionSchema } from '../notify/push.js';
 import { DEFAULT_VOICE, type VoiceSettings } from '../voice/persona.js';
 import type { IdentityService, Session } from '../identity/identity.js';
 import type { GmailService } from '../connectors/gmail/service.js';
+import type { CalendarConnections } from '../calendar/remotes.js';
 import { inventoryBlockers } from '../setup/inventory.js';
 import { AUTHORITY_TEMPLATES, enableTemplate } from '../policy/templates.js';
 
@@ -26,6 +27,7 @@ export interface ServerOptions {
   /** Passkey sessions. Static tokens are a bootstrap/break-glass path and can never satisfy step-up. */
   identity?: IdentityService;
   gmail?: GmailService;
+  calendars?: CalendarConnections;
 }
 
 declare module 'fastify' {
@@ -173,8 +175,8 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
 
   // ---- Voice -----------------------------------------------------------------
-  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft'];
-  const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose']) };
+  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft'];
+  const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose']) };
   type StoredVoice = VoiceSettings & { mode: 'private' | 'business' };
   const voiceSettings = async (): Promise<StoredVoice> => ({ ...DEFAULT_VOICE, voiceId: 'marin', mode: 'private', ...(await j.settings.get<StoredVoice>('voice')) });
   const Lang = z.enum(['en', 'pt-BR', 'es', 'it']);
@@ -305,6 +307,31 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     return { disconnected: true };
   });
   app.post('/v1/connectors/gmail/sync', owner, async () => ({ newMessages: await requireGmail().syncNow() }));
+
+  // ---- Connectors: calendars -------------------------------------------------
+  const requireCalendars = () => {
+    if (!opts.calendars) throw new JenniferError('calendar.not_configured', 'Calendars need the durable database and a vault key');
+    return opts.calendars;
+  };
+  app.get('/v1/connectors/calendar', owner, async () => ({
+    calendars: j.calendar.remotes.map((r) => ({ id: r.id, label: r.label, writable: r.writable })),
+    lastSync: j.calendar.lastSync?.toISOString() ?? null,
+  }));
+  app.post('/v1/connectors/icloud-calendar/connect', owner, async (req) => {
+    requireSensitive(req);
+    const b = z.object({ appleId: z.string().email(), appPassword: z.string().min(16).max(40), calendar: z.string().max(80).optional() }).parse(req.body);
+    return requireCalendars().connectICloud(b.appleId, b.appPassword, j.ownerId, b.calendar);
+  });
+  app.post('/v1/connectors/calendar-feed/connect', owner, async (req) => {
+    requireSensitive(req);
+    const b = z.object({ url: z.string().min(10).max(2000), label: z.string().max(80).default('Google Calendar') }).parse(req.body);
+    return requireCalendars().connectIcsFeed(b.url, b.label, j.ownerId);
+  });
+  app.post('/v1/connectors/calendar/sync', owner, async () => requireCalendars().syncNow());
+  app.post('/v1/connectors/calendar/:id/disconnect', owner, async (req) => {
+    await requireCalendars().disconnect(z.object({ id: z.string() }).parse(req.params).id, j.ownerId);
+    return { disconnected: true };
+  });
 
   // ---- Authority registry --------------------------------------------------
   app.get('/v1/authority', owner, async () => j.authority.list());

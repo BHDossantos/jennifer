@@ -8,6 +8,7 @@ import { IdentityService } from '../identity/identity.js';
 import { systemClock } from '../core/util.js';
 import { LocalKeyWrapper, Vault } from '../identity/vault.js';
 import { GmailService } from '../connectors/gmail/service.js';
+import { CalendarConnections } from '../calendar/remotes.js';
 
 const env = process.env.JENNIFER_ENV ?? 'development';
 const dev = env === 'development';
@@ -51,6 +52,10 @@ const gmail = vault
     })
   : undefined;
 if (gmail) await gmail.resume().catch((e) => console.error('Gmail resume failed:', (e as Error).message));
+const calendars = vault
+  ? new CalendarConnections({ db, vault, clock: j.clock, audit: j.audit, capabilities: j.capabilities, calendar: j.calendar, ownerId: j.ownerId, environment: env })
+  : undefined;
+if (calendars) await calendars.resume().catch((e) => console.error('Calendar resume failed:', (e as Error).message));
 const ownerToken = j.config.apiToken ?? (dev ? 'dev-owner-token-change-me' : undefined);
 if (!ownerToken) throw new Error('JENNIFER_API_TOKEN (bootstrap/break-glass token) is required outside development');
 const developerToken = process.env.JENNIFER_DEVELOPER_TOKEN;
@@ -72,6 +77,7 @@ const app = buildServer(j, {
   logger: true,
   identity,
   gmail,
+  calendars,
 });
 
 // Worker loop stand-in until the durable workflow engine lands (Week 6):
@@ -84,6 +90,9 @@ const timer = setInterval(() => {
   j.memory.expireDue();
 }, 5000);
 // Mission scheduler: due background runs (read-only research) once a minute.
+// Calendar mirror refresh every 10 minutes.
+const calendarTimer = setInterval(() => void calendars?.syncNow().catch((e) => app.log.error(e)), 10 * 60_000);
+calendarTimer.unref();
 const missionTimer = setInterval(() => {
   void j.missions.tick().catch((e) => app.log.error(e));
   void j.notifications.flushHeld().catch((e) => app.log.error(e));
@@ -95,6 +104,7 @@ async function shutdown(signal: string) {
   app.log.info(`${signal}: draining`);
   clearInterval(timer);
   clearInterval(missionTimer);
+  clearInterval(calendarTimer);
   await app.close();
   await j.store.flush();
   await db!.close();

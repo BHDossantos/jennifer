@@ -163,6 +163,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     },
   });
   const chat = new ChatService({ clock, ownerId, tools, memory, audit, model: toolModel, modelName: config.openai.reasoningModel, homeTimeZone: config.homeTimeZone });
+  registerCalendarTools(tools, { ownerId, calendar, actions, capabilities, clock, homeTimeZone: config.homeTimeZone });
   tools.register({
     name: 'list_missions',
     description: "Bruno's missions (always-on agents): status, latest unreviewed results and recent activity.",
@@ -378,4 +379,70 @@ export async function createDurableJennifer(opts: JenniferOptions & { db: Db }) 
   j.conversations.onChange((e) => store.conversationChange(e));
   j.memory.onChange((e) => store.memoryChange(e));
   return Object.assign(j, { db: opts.db, store });
+}
+
+/** Calendar tools: read the mirror, find free time, and propose events (never write directly). */
+function registerCalendarTools(
+  tools: ToolRegistry,
+  d: { ownerId: string; calendar: CalendarService; actions: ActionService; capabilities: CapabilityRegistry; clock: Clock; homeTimeZone: string },
+): void {
+  const fmt = (iso: string, zone: string) => DateTime.fromISO(iso, { zone: 'utc' }).setZone(zone).toFormat("ccc d LLL HH:mm");
+  tools.register({
+    name: 'get_calendar',
+    description: "Bruno's upcoming calendar events (times shown in his home time zone unless another is given).",
+    input: z.object({ hours: z.number().int().min(1).max(24 * 14).default(24), timeZone: z.string().optional() }),
+    requiredScopes: ['calendar:read'],
+    sideEffect: 'read',
+    timeoutMs: 3000,
+    rateLimitPerMinute: 30,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i) => {
+      const zone = i.timeZone ?? d.homeTimeZone;
+      const cals = d.calendar.remotes.map((r) => r.label);
+      return {
+        calendars: cals.length ? cals : ['none connected'],
+        lastSync: d.calendar.lastSync?.toISOString() ?? null,
+        events: d.calendar.upcoming(i.hours).map((e) => ({ id: e.id, title: e.title, start: fmt(e.startUtc, zone), end: fmt(e.endUtc, zone), location: e.location, busy: e.busy !== false })),
+      };
+    },
+  });
+  tools.register({
+    name: 'find_free_slots',
+    description: 'Free time slots on given dates (YYYY-MM-DD) in a time zone, avoiding conflicts and travel buffers.',
+    input: z.object({ dates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1).max(7), durationMin: z.number().int().min(15).max(480), timeZone: z.string().optional(), fromHour: z.number().int().min(0).max(23).default(9), toHour: z.number().int().min(1).max(24).default(18) }),
+    requiredScopes: ['calendar:read'],
+    sideEffect: 'read',
+    timeoutMs: 3000,
+    rateLimitPerMinute: 30,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i) => {
+      const zone = i.timeZone ?? d.homeTimeZone;
+      return d.calendar.suggestSlots('primary', zone, i.dates, i.durationMin, [i.fromHour, i.toHour]).slice(0, 12).map((s) => s.setZone(zone).toFormat("ccc d LLL HH:mm"));
+    },
+  });
+  tools.register({
+    name: 'propose_event',
+    description: 'Propose a calendar event. It is created only if Bruno approves or a standing permission allows it; attendees receive invitations.',
+    input: z.object({ title: z.string().min(1).max(200), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), time: z.string().regex(/^\d{2}:\d{2}$/), durationMin: z.number().int().min(5).max(720), timeZone: z.string().optional(), attendees: z.array(z.string().email()).max(10).default([]), location: z.string().max(200).optional() }),
+    requiredScopes: ['calendar:propose'],
+    sideEffect: 'external_write',
+    timeoutMs: 5000,
+    rateLimitPerMinute: 10,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i, ctx) => {
+      const ev = d.calendar.buildEvent({ calendarId: 'primary', title: i.title, start: { date: i.date, time: i.time, timeZone: i.timeZone ?? d.homeTimeZone }, durationMin: i.durationMin, attendees: i.attendees, location: i.location });
+      const writer = d.calendar.writer();
+      const intent = d.actions.propose({
+        ownerId: d.ownerId,
+        type: 'create_event',
+        space: 'personal',
+        channel: 'calendar',
+        connectorId: writer ? 'icloud_calendar' : 'google_calendar',
+        accountId: writer?.id ?? 'local-calendar',
+        payload: { event: ev },
+        proposedBy: `agent:${ctx.role}`,
+      });
+      return { actionId: intent.id, state: intent.state, reasons: intent.stateReason ?? intent.decisionReasons.join('; '), when: fmt(ev.startUtc, ev.timeZone) };
+    },
+  });
 }
