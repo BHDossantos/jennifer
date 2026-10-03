@@ -147,7 +147,8 @@ const views = {
         <label>Upload export (.zip or conversations.json) <input type="file" id="histfile" accept=".zip,.json,application/zip,application/json"></label>
         <label>Search your AI chats <input id="hq" placeholder="e.g. agency business plan"></label><div id="hres"></div>
         <details><summary>Paste a chat (Send to Jennifer)</summary><textarea id="clip" rows="5" placeholder="Paste a ChatGPT or Claude conversation"></textarea>
-          <select id="clipfrom"><option value="chatgpt">ChatGPT</option><option value="claude">Claude</option><option value="other">Other</option></select> <button data-clip="1">Save</button></details>
+          <select id="clipfrom"><option value="chatgpt">ChatGPT</option><option value="claude">Claude</option><option value="other">Other</option></select> <button data-clip="1">Save</button>
+          <p class="muted">For the iPhone Share Sheet, make a Shortcut that POSTs the shared text to /v1/history/clip with this token in the X-Jennifer-Clip-Token header.</p><button data-cliptoken="1">Create Share Sheet token</button> <code id="cliptok"></code></details>
         \${imp ? '<ul>' + imp + '</ul>' : ''}</div>\`;
   },
   async calls() {
@@ -300,6 +301,7 @@ document.addEventListener('click', async (e) => {
     return show('memory');
   }
   if (t.dataset.histdel) { if (confirm('Remove this import from Jennifer?')) await api('/v1/history/imports/' + t.dataset.histdel, { method: 'DELETE' }); return show('memory'); }
+  if (t.dataset.cliptoken) { const r = await api('/v1/history/clip-token', { method: 'POST', body: '{}' }); $('#cliptok').textContent = r.token; return; }
   if (t.dataset.clip) {
     try { await api('/v1/history/clip', { method: 'POST', body: JSON.stringify({ text: $('#clip').value, from: $('#clipfrom').value }) }); $('#status').textContent = 'Saved to your AI history.'; } catch (err) { $('#status').textContent = 'History: ' + err.message; }
     return show('memory');

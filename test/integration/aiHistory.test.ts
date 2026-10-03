@@ -101,6 +101,12 @@ describe('ChatGPT and Claude history bridge', () => {
     expect(r.statusCode).toBe(200);
     const s = (await app.inject({ method: 'GET', url: '/v1/history/search?q=Generali%20commission', headers: auth })).json();
     expect(s[0].excerpt).toMatch(/12% commission/);
+    // Share Sheet token: adds clips only, nothing else.
+    const { token } = (await app.inject({ method: 'POST', url: '/v1/history/clip-token', headers: auth })).json();
+    const clipHeaders = { 'x-jennifer-clip-token': token };
+    expect((await app.inject({ method: 'POST', url: '/v1/history/clip', headers: clipHeaders, payload: { text: 'Shared from the ChatGPT app', from: 'chatgpt' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: '/v1/history/clip', headers: { 'x-jennifer-clip-token': 'clip_wrong' }, payload: { text: 'x' } })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'GET', url: '/v1/history/search?q=shared', headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(401);
     const zip = zipSync({ 'conversations.json': strToU8(chatgpt) });
     const up = await app.inject({ method: 'POST', url: '/v1/history/import-zip', headers: { ...auth, 'content-type': 'application/zip' }, payload: Buffer.from(zip) });
     expect(up.json()).toMatchObject({ source: 'chatgpt', messages: 3 });

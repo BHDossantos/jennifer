@@ -1,7 +1,7 @@
 import { newId } from '../core/util.js';
 import { renderUntrusted, wrapUntrusted } from '../security/untrusted.js';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
-import { timingSafeEqual, createHash } from 'node:crypto';
+import { timingSafeEqual, createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { ACTION_MODES, ACTION_TYPES, JenniferError, SPACES } from '../core/types.js';
 import type { Jennifer } from '../app.js';
@@ -452,7 +452,28 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     return j.history.importExport({ zip: req.body as Buffer }, j.ownerId);
   });
   /** "Send to Jennifer" from the ChatGPT/Claude share sheet (iOS Shortcut) or a paste. */
-  app.post('/v1/history/clip', owner, async (req) => {
+  /**
+   * A long-lived token that can only add clips (for the iOS Share Sheet
+   * Shortcut). Creating one is a step-up action; creating a new one revokes the old.
+   */
+  app.post('/v1/history/clip-token', owner, async (req) => {
+    requireSensitive(req);
+    const token = `clip_${randomBytes(24).toString('base64url')}`;
+    await j.settings.set('history.clipTokenHash', digest(token).toString('hex'));
+    j.audit.record(j.ownerId, 'history.clip_token_created', 'clip', {});
+    return { token, url: '/v1/history/clip', header: 'X-Jennifer-Clip-Token' };
+  });
+  const clipAuth = async (req: FastifyRequest, reply: FastifyReply) => {
+    const t = req.headers['x-jennifer-clip-token'];
+    if (typeof t === 'string' && t) {
+      const stored = await j.settings.get<string>('history.clipTokenHash');
+      const d = digest(t);
+      if (stored && timingSafeEqual(Buffer.from(stored, 'hex'), d)) return;
+      return reply.code(401).send({ error: 'unauthorized' });
+    }
+    return auth('owner')(req, reply);
+  };
+  app.post('/v1/history/clip', { preHandler: clipAuth }, async (req) => {
     const b = z.object({ text: z.string().min(1).max(500_000), title: z.string().max(200).optional(), from: z.enum(['chatgpt', 'claude', 'other']).optional(), url: z.string().url().max(2000).optional() }).parse(req.body);
     return j.history.clip(b, j.ownerId);
   });
