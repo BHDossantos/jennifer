@@ -156,4 +156,25 @@ describe('conversations and memory survive restarts', () => {
     await j2.store.flush();
     await db.close();
   });
+
+  it('pauses, emergency stop, "stop contacting" rules and learned rules survive a restart', async () => {
+    const db = await pgliteDb();
+    const gmail = new FakeEmailProvider('gmail');
+    const j1 = await boot(db, gmail);
+    const marco = await seed(j1);
+    j1.controls.pauseContact('bruno', marco.id);
+    j1.controls.emergencyStop('bruno');
+    j1.suppressions.add({ domain: 'spammy.test', channels: 'all', reason: 'Bruno: stop contacting them', createdBy: 'bruno' });
+    for (let n = 0; n < 3; n++)
+      j1.feedback.record({ ownerId: 'bruno', kind: 'poor_tone', space: 'music', originalCandidate: 'Hey!!', approvedFinal: 'Hello Marco,', note: 'less exclamation marks', sourceRefs: [], modelVersion: 'm', promptVersion: 'p', givenBy: 'bruno', trainingConsent: false });
+    j1.feedback.proposeRules();
+    await j1.store.flush();
+
+    const j2 = await boot(db, gmail);
+    expect(j2.controls.status()).toMatchObject({ emergencyStop: true, pausedContacts: [marco.id] });
+    expect(j2.suppressions.match({ contactIds: [], addresses: ['info@spammy.test'], channel: 'email' })?.reason).toMatch(/stop contacting/);
+    expect(j2.feedback.rulesFor('music').map((r) => r.status)).toEqual(['auto_applied']);
+    await j2.store.flush();
+    await db.close();
+  });
 });

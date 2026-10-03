@@ -53,7 +53,35 @@ export class FeedbackStore {
   private items: Feedback[] = [];
   private rules = new Map<string, ProposedRule>();
 
+  private changeListeners: Array<() => void> = [];
+
   constructor(private clock: Clock) {}
+
+  onChange(fn: () => void): void {
+    this.changeListeners.push(fn);
+  }
+
+  snapshot(): { items: Feedback[]; rules: ProposedRule[] } {
+    return { items: this.items.slice(-2000), rules: [...this.rules.values()] };
+  }
+
+  restore(s: { items: Feedback[]; rules: ProposedRule[] }): void {
+    this.items = s.items.map((f) => ({ ...f, at: new Date(f.at) }));
+    this.rules = new Map(s.rules.map((r) => [r.id, r]));
+  }
+
+  /** Bruno approves or rejects a proposed rule (authority/contact rules never auto-apply). */
+  decideRule(id: string, status: 'approved' | 'rejected'): ProposedRule {
+    const r = this.rules.get(id);
+    if (!r) throw new Error(`No rule ${id}`);
+    r.status = status;
+    this.changeListeners.forEach((l) => l());
+    return r;
+  }
+
+  allRules(): ProposedRule[] {
+    return [...this.rules.values()];
+  }
 
   record(input: Omit<Feedback, 'id' | 'at'>): Feedback {
     if (input.givenBy !== input.ownerId) throw new Error('Only the owner can provide feedback that shapes behavior');
@@ -65,6 +93,7 @@ export class FeedbackStore {
       at: this.clock.now(),
     };
     this.items.push(fb);
+    this.changeListeners.forEach((l) => l());
     return fb;
   }
 
@@ -99,6 +128,7 @@ export class FeedbackStore {
       this.rules.set(k, rule);
       out.push(rule);
     }
+    if (out.length) this.changeListeners.forEach((l) => l());
     return out;
   }
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SPACES } from './core/types.js';
+import type { ActionIntent } from './actions/model.js';
 import { type Clock, systemClock } from './core/util.js';
 import { type Config, loadConfig, textModel } from './core/config.js';
 import { type ModelProvider, OpenAIProvider, ScriptedModel } from './core/model.js';
@@ -19,7 +20,8 @@ import { MemoryStore } from './memory/memory.js';
 import { ChatGptImporter } from './memory/chatgptImport.js';
 import { AgentCoordinator } from './agents/agents.js';
 import { WorkflowRegistry, buildDailyBrief } from './workflows/workflows.js';
-import { FeedbackStore, ModelRegistry } from './learning/feedback.js';
+import { FeedbackStore, ModelRegistry, type FeedbackKind } from './learning/feedback.js';
+import type { ControlsSnapshot, SuppressionRule } from './policy/controls.js';
 import { ToolRegistry } from './tools/registry.js';
 import { InboundProcessor } from './assistant/inbound.js';
 import { DateTime } from 'luxon';
@@ -142,6 +144,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     send: opts.pushSender,
   });
   const quietly = (p: Promise<unknown>) => void p.catch(() => undefined);
+  let learning: { rejected: (actionId: string, reason: FeedbackKind, note?: string) => void } = { rejected: () => undefined };
   actions.onTransition((i, from) => {
     if (i.state !== 'awaiting_decision' || from === 'awaiting_decision') return;
     const p = i.payload as { to?: string[]; subject?: string };
@@ -168,6 +171,37 @@ export function createJennifer(opts: JenniferOptions = {}) {
       contacts.learnFromApproval(ownerId, kind, addr, i.space, name);
     }
   });
+  // Learning (spec §13): every decision on a drafted message becomes feedback automatically.
+  const firstDraft = new Map<string, string>();
+  const bodyOf = (i: ActionIntent) => String((i.payload as { body?: string }).body ?? '');
+  const recordFeedback = (i: ActionIntent, kind: FeedbackKind, note?: string) => {
+    if (i.type !== 'send_message') return;
+    const contactId = (i.payload as { to?: string[] }).to?.map((a) => contacts.findByIdentity(ownerId, 'email', a)?.id).find(Boolean);
+    feedback.record({
+      ownerId,
+      actionId: i.id,
+      kind,
+      space: i.space,
+      contactId,
+      originalCandidate: firstDraft.get(i.id) ?? bodyOf(i),
+      approvedFinal: kind === 'rejected' ? undefined : bodyOf(i),
+      note,
+      sourceRefs: ((i.payload as { evidence?: Array<{ sourceId: string }> }).evidence ?? []).map((e) => e.sourceId),
+      policyVersion: i.policyVersion,
+      modelVersion: textModel(config).model,
+      promptVersion: config.openai.promptVersion,
+      givenBy: ownerId,
+      trainingConsent: false,
+    });
+    feedback.proposeRules();
+  };
+  actions.onTransition((i, from) => {
+    if (i.type !== 'send_message') return;
+    if (!firstDraft.has(i.id)) firstDraft.set(i.id, bodyOf(i));
+    if (i.state === 'ready' && from === 'awaiting_decision' && i.approvalId) recordFeedback(i, firstDraft.get(i.id) === bodyOf(i) ? 'accepted_unchanged' : 'edited');
+    if (i.state === 'confirmed' || i.state === 'canceled' || i.state === 'failed') firstDraft.delete(i.id);
+  });
+  learning = { rejected: (id, reason, note) => recordFeedback(actions.get(id), reason, note) };
   capabilities.onDisconnected((id, error) =>
     quietly(notifications.notify({ kind: 'problem', title: 'Jennifer: an account disconnected', body: `${id} needs reconnecting. I can't check it until then.`, detail: `${id}: ${error}`, url: '/?tab=connections', urgent: true, dedupKey: `disconnected:${id}` })),
   );
@@ -288,6 +322,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     agents,
     workflows,
     feedback,
+    learning: { rejected: (actionId: string, reason: FeedbackKind, note?: string) => learning.rejected(actionId, reason, note) },
     modelRegistry,
     calendar,
     emailConnectors,
@@ -453,6 +488,18 @@ export async function createDurableJennifer(opts: JenniferOptions & { db: Db }) 
   await ensureOwner(opts.db, ownerId);
   const store = new PgStateStore(opts.db, ownerId);
   const j = createJennifer({ ...opts, clock, events: new PgEventLog(opts.db, clock), durability: store, settings: new PgSettings(opts.db, ownerId), missionStore: new PgMissionStore(opts.db), aiHistoryStore: new PgAiHistoryStore(opts.db) });
+
+  // Safety switches, "stop contacting" rules and learning survive restarts.
+  const settings = new PgSettings(opts.db, ownerId);
+  const controlsState = await settings.get<ControlsSnapshot>('state.controls');
+  if (controlsState) j.controls.restore(controlsState);
+  const suppressionState = await settings.get<SuppressionRule[]>('state.suppressions');
+  if (suppressionState) j.suppressions.restore(suppressionState);
+  const feedbackState = await settings.get<ReturnType<FeedbackStore['snapshot']>>('state.feedback');
+  if (feedbackState) j.feedback.restore(feedbackState);
+  j.controls.onChange(() => store.enqueue(() => settings.set('state.controls', j.controls.snapshot())));
+  j.suppressions.onChange(() => store.enqueue(() => settings.set('state.suppressions', j.suppressions.all())));
+  j.feedback.onChange(() => store.enqueue(() => settings.set('state.feedback', j.feedback.snapshot())));
 
   j.authority.restore(await store.loadRules());
   j.contacts.restore(await store.loadContacts());

@@ -142,7 +142,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   app.get('/v1/actions/:id', owner, async (req) => {
     const { id } = z.object({ id: z.string() }).parse(req.params);
     const a = j.actions.get(id);
-    return { ...approvalCard(a), history: a.history, receipt: a.receipt };
+    return { ...approvalCard(a), history: a.history, receipt: a.receipt, payloadRaw: a.payload };
   });
   app.post('/v1/actions/:id/approve', owner, async (req) => {
     const { id } = z.object({ id: z.string() }).parse(req.params);
@@ -160,7 +160,83 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
   app.post('/v1/actions/:id/cancel', owner, async (req) => {
     const { id } = z.object({ id: z.string() }).parse(req.params);
-    return { canceled: j.actions.cancel(id, j.ownerId, 'canceled by Bruno') };
+    // Optional "why": wrong fact, wrong recipient, poor tone... becomes learning feedback.
+    const b = z.object({ reason: z.enum(['rejected', 'wrong_fact', 'wrong_recipient', 'poor_tone', 'incomplete_action', 'escalation_needed']).default('rejected'), note: z.string().max(500).optional() }).parse(req.body ?? {});
+    const wasDecision = j.actions.get(id).state === 'awaiting_decision';
+    const canceled = j.actions.cancel(id, j.ownerId, b.note ? `canceled by Bruno: ${b.note}` : 'canceled by Bruno');
+    if (canceled && wasDecision) j.learning.rejected(id, b.reason, b.note);
+    return { canceled };
+  });
+  // ---- Conversations ---------------------------------------------------------
+  app.get('/v1/conversations', owner, async (req) => {
+    const q = z.object({ space: z.enum(SPACES).optional(), limit: z.coerce.number().int().min(1).max(200).default(50) }).parse(req.query);
+    const pending = j.actions.list({ ownerId: j.ownerId }).filter((a) => a.conversationId && ['proposed', 'validated', 'awaiting_decision', 'ready'].includes(a.state));
+    return j.conversations
+      .listConversations(j.ownerId)
+      .filter((c) => !q.space || c.space === q.space)
+      .map((c) => {
+        const msgs = j.conversations.messagesIn(c.id);
+        const last = msgs.at(-1);
+        return { id: c.id, subject: c.subject, space: c.space, channel: c.channel, lastAt: last?.occurredAt, lastFrom: last?.from, lastPreview: last?.body.slice(0, 160), messages: msgs.length, pendingActions: pending.filter((a) => a.conversationId === c.id).length };
+      })
+      .sort((a, b) => (b.lastAt?.getTime() ?? 0) - (a.lastAt?.getTime() ?? 0))
+      .slice(0, q.limit);
+  });
+  /** Conversation detail: messages in order with drafts, attachments and receipts. */
+  app.get('/v1/conversations/:id', owner, async (req) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    const c = j.conversations.getConversation(id);
+    if (c.ownerId !== j.ownerId) throw new JenniferError('conversation.not_found', 'No such conversation');
+    const actions = j.actions.list({ ownerId: j.ownerId }).filter((a) => a.conversationId === id);
+    return {
+      conversation: { id: c.id, subject: c.subject, space: c.space, channel: c.channel, accountId: c.accountId },
+      messages: j.conversations.messagesIn(id).map((m) => ({
+        id: m.id,
+        direction: m.direction,
+        from: m.from,
+        to: m.to,
+        cc: m.cc,
+        subject: m.subject,
+        body: m.body,
+        at: m.occurredAt,
+        flags: m.flags,
+        attachments: (m.attachmentIds ?? []).map((aid) => {
+          const a = j.conversations.getAttachment(aid);
+          return { id: a.id, filename: a.filename, scanStatus: a.scanStatus, space: a.space };
+        }),
+      })),
+      actions: actions.map((a) => ({ ...approvalCard(a), receipt: a.receipt, history: a.history.slice(-5) })),
+    };
+  });
+  app.get('/v1/contacts', owner, async () => j.contacts.list(j.ownerId).map((c) => ({ id: c.id, name: c.displayName, spaces: c.spaces, identities: c.identities.map((i) => ({ kind: i.kind, value: i.value, verified: i.verified })), paused: j.controls.status().pausedContacts.includes(c.id) })));
+
+  // ---- Problems: dead letters with a recovery action -------------------------
+  app.get('/v1/dead-letters', owner, async () => j.deadLetters.list());
+  app.post('/v1/dead-letters/:id/dismiss', owner, async (req) => {
+    j.deadLetters.remove(z.object({ id: z.string() }).parse(req.params).id);
+    return { dismissed: true };
+  });
+  /** Retry = a fresh proposal of the same action, which waits for Bruno's explicit decision. */
+  app.post('/v1/dead-letters/:id/retry', owner, async (req) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    const d = j.deadLetters.list().find((x) => x.id === id);
+    if (!d) throw new JenniferError('dlq.not_found', 'No such problem');
+    const a = j.actions.get(d.subjectId);
+    if (!['failed', 'canceled'].includes(a.state)) throw new JenniferError('dlq.not_retryable', `The original action is ${a.state}; check it before retrying`);
+    const fresh = j.actions.propose({ ownerId: a.ownerId, type: a.type, space: a.space, channel: a.channel, connectorId: a.connectorId, accountId: a.accountId, conversationId: a.conversationId, workflowId: a.workflowId, payload: a.payload, proposedBy: `${j.ownerId}:retry` });
+    j.actions.requireDecision(fresh.id, j.ownerId, `retry of ${a.id}`);
+    j.deadLetters.remove(id);
+    return approvalCard(j.actions.get(fresh.id));
+  });
+
+  // ---- Learning: feedback and proposed rules ---------------------------------
+  app.get('/v1/feedback', owner, async () => ({ feedback: j.feedback.list().slice(-200).reverse(), rules: j.feedback.allRules() }));
+  app.post('/v1/feedback/rules/:id', owner, async (req) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    const b = z.object({ status: z.enum(['approved', 'rejected']) }).parse(req.body);
+    // Rules that change contact behavior are a sensitive change.
+    if (b.status === 'approved' && j.feedback.allRules().find((r) => r.id === id)?.impact !== 'style') requireSensitive(req);
+    return j.feedback.decideRule(id, b.status);
   });
 
   // ---- Identity: passkeys, step-up, devices ---------------------------------
@@ -434,6 +510,15 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     return { deleted: true };
   });
   app.get('/v1/memory/reviews', owner, async () => j.memory.openReviews());
+  /** Bruno corrects a memory: the old entry is superseded, never silently overwritten. */
+  app.post('/v1/memory/:id/correct', owner, async (req) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    const b = z.object({ value: z.string().min(2).max(2000) }).parse(req.body);
+    return j.memory.correct(id, j.ownerId, b.value, `Corrected by Bruno in the app`);
+  });
+  app.get('/v1/memory/export', owner, async (_req, reply) =>
+    reply.header('content-disposition', 'attachment; filename="jennifer-memory.json"').send({ exportedAt: j.clock.now(), entries: j.memory.export(j.ownerId) }),
+  );
   // ---- ChatGPT / Claude history (explicit exports and shared clips) ---------
   /** Legacy: raw ChatGPT conversations.json text. */
   app.post('/v1/memory/import/chatgpt', owner, async (req) => {

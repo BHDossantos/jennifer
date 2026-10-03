@@ -37,7 +37,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   #voice { width:56px; height:56px; border-radius:50%; border:0; background:var(--accent); color:#fff; position:fixed; right:16px; bottom:16px; font-size:13px; }
   @media (prefers-reduced-motion: no-preference) { #voice[data-state="listening"] { animation: pulse 1.6s infinite; } }
   @keyframes pulse { 50% { box-shadow:0 0 0 12px color-mix(in srgb, var(--accent) 25%, transparent); } }
-  input { font:inherit; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); width:100%; }
+  input, textarea, select { font:inherit; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); width:100%; }
 </style>
 </head>
 <body>
@@ -46,6 +46,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   <button data-tab="today" aria-current="page">Today</button>
   <button data-tab="ask">Ask</button>
   <button data-tab="missions">Missions</button>
+  <button data-tab="conversations">Inbox</button>
   <button data-tab="tasks">Tasks</button>
   <button data-tab="calls">Calls</button>
   <button data-tab="connections">Connections</button>
@@ -95,12 +96,17 @@ const api = async (path, opts = {}, retried = false) => {
   return body;
 };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-const card = (a) => \`<div class="card"><strong>\${esc(a.type)}</strong> <span class="muted">· \${esc(a.state)}</span>
+const LABEL = { send_message: 'Email', create_event: 'New calendar event', modify_event: 'Calendar change' };
+const STATE = { awaiting_decision: 'waiting for you', provider_accepted: 'sent', confirmed: 'done', ready: 'about to run', canceled: 'canceled', failed: 'failed', unknown: 'checking whether it went out' };
+const card = (a) => \`<div class="card"><strong>\${esc(LABEL[a.type] || a.type)}</strong> <span class="muted">· \${esc(STATE[a.state] || a.state)}</span>
   <div class="muted">From \${esc(a.sendingAccount)} to \${esc(a.recipients.join(', '))}</div>
   \${a.subject ? '<div>' + esc(a.subject) + '</div>' : ''}<pre>\${esc(a.body)}</pre>
   \${a.attachmentIds.length ? '<div class="muted">Attachments: ' + esc(a.attachmentIds.join(', ')) + '</div>' : ''}
   <div class="muted">\${esc((a.consequences || []).join(' · '))}</div>
-  \${a.state === 'awaiting_decision' ? \`<div class="row"><button class="btn primary" data-approve="\${a.id}" data-rev="\${a.revision}" data-hash="\${a.payloadHash}">Approve and send</button><button class="btn" data-cancel="\${a.id}">Decline</button></div>\` : ''}</div>\`;
+  \${a.state === 'awaiting_decision' ? \`<div class="row"><button class="btn primary" data-approve="\${a.id}" data-rev="\${a.revision}" data-hash="\${a.payloadHash}">Approve and send</button><button class="btn" data-edit="\${a.id}">Edit</button>
+    <select style="width:auto" data-why="\${a.id}" aria-label="Why decline"><option value="rejected">Decline</option><option value="wrong_fact">Decline: wrong fact</option><option value="wrong_recipient">Decline: wrong recipient</option><option value="poor_tone">Decline: wrong tone</option><option value="incomplete_action">Decline: incomplete</option></select><button class="btn" data-cancel="\${a.id}">Decline</button></div>
+    <div id="edit-\${a.id}" hidden><label>Subject <input id="es-\${a.id}" value="\${esc(a.subject || '')}"></label><label>Message <textarea id="eb-\${a.id}" rows="8">\${esc(a.body || '')}</textarea></label>
+    <p class="muted">Saving creates a new version; you then approve that exact version.</p><button class="btn primary" data-saveedit="\${a.id}">Save changes</button></div>\` : ''}\${a.receipt ? '<div class="good">Receipt: ' + esc(a.receipt.evidence || a.receipt.deliveryStatus || '') + '</div>' : ''}</div>\`;
 
 const views = {
   async today() {
@@ -114,6 +120,15 @@ const views = {
       <h2>Needs your decision</h2>\${t.awaitingDecision.map(card).join('') || '<p class="muted">Nothing waiting.</p>'}
       <h2>Completed</h2>\${b.completed.map(c => '<div class="card">' + esc(c.summary) + '</div>').join('') || '<p class="muted">Nothing completed in the last 24 hours.</p>'}
       <h2>Blocked</h2>\${b.failures.map(f => '<div class="card bad">' + esc(f.summary) + '<div class="muted">' + esc(f.recovery) + '</div></div>').join('') || '<p class="muted">No failures.</p>'}\`;
+  },
+  async conversations() {
+    if (convOpen) {
+      const d = await api('/v1/conversations/' + encodeURIComponent(convOpen));
+      const items = d.messages.map((m) => ({ at: m.at, html: \`<div class="card \${m.direction === 'outbound' ? 'good' : ''}"><div class="muted">\${esc(m.direction === 'outbound' ? 'You' : (m.from.displayName || m.from.address))} · \${esc(new Date(m.at).toLocaleString())}\${(m.flags || []).length ? ' · ' + esc(m.flags.join(', ')) : ''}</div><pre>\${esc(m.body)}</pre>\${m.attachments.map((a) => '<div class="muted">📎 ' + esc(a.filename) + ' (' + esc(a.scanStatus) + ')</div>').join('')}</div>\` }));
+      return \`<button class="btn" data-conv="">← All conversations</button><h2>\${esc(d.conversation.subject || '(no subject)')}</h2><div class="muted">\${esc(d.conversation.space)} · \${esc(d.conversation.accountId)}</div>\` + items.map((i) => i.html).join('') + (d.actions.length ? '<h3>Drafts and actions</h3>' + d.actions.map(card).join('') : '');
+    }
+    const list = await api('/v1/conversations');
+    return list.map((c) => \`<div class="card" role="button" tabindex="0" data-conv="\${esc(c.id)}"><strong data-conv="\${esc(c.id)}">\${esc(c.subject || '(no subject)')}</strong> <span class="muted">\${esc(c.space)}\${c.pendingActions ? ' · ' + c.pendingActions + ' waiting' : ''}</span><div class="muted" data-conv="\${esc(c.id)}">\${esc((c.lastFrom && (c.lastFrom.displayName || c.lastFrom.address)) || '')}: \${esc(c.lastPreview || '')}</div></div>\`).join('') || '<p class="muted">No conversations yet. Connect Gmail in Connections.</p>';
   },
   async tasks() { return (await api('/v1/actions')).map(card).join('') || '<p class="muted">No tasks.</p>'; },
   async connections() {
@@ -141,7 +156,7 @@ const views = {
     const [pending, imports] = await Promise.all([api('/v1/memory/pending'), api('/v1/history/imports').catch(() => [])]);
     const review = pending.length ? '<h3>Waiting for your OK</h3>' + pending.map((m) => \`<div class="card">\${esc(m.value)}<div class="muted">\${esc(m.kind)} · from \${esc(m.source.kind)}\${m.source.excerpt ? ': “' + esc(m.source.excerpt.slice(0, 140)) + '”' : ''}</div><button data-memact="\${m.id}|activate">Remember</button> <button data-memact="\${m.id}|delete">Discard</button></div>\`).join('') : '';
     const imp = imports.map((i) => \`<li>\${esc(i.source)} · \${i.conversations} chats, \${i.messages} messages\${i.projects ? ', ' + i.projects + ' projects' : ''} · <button data-histdel="\${i.id}">Remove</button></li>\`).join('');
-    return review + \`<div class="card"><label>Search memory <input id="mq" placeholder="e.g. travel in November"></label></div><div id="mres"></div>
+    return review + \`<div class="card"><label>Search memory <input id="mq" placeholder="e.g. travel in November"></label><button class="btn" data-memexport="1">Export all memory</button></div><div id="mres"></div>
       <h3>ChatGPT &amp; Claude history</h3>
       <div class="card"><p class="muted">Jennifer reads only what you give her: your data export (ChatGPT → Settings → Data controls → Export data; Claude → Settings → Privacy → Export data), or a single chat you share. She never signs in to those accounts.</p>
         <label>Upload export (.zip or conversations.json) <input type="file" id="histfile" accept=".zip,.json,application/zip,application/json"></label>
@@ -208,23 +223,54 @@ const views = {
       <label>Quiet from <input type="time" data-pref="quietStart" value="\${np.quietStart}"></label>
       <label>until <input type="time" data-pref="quietEnd" value="\${np.quietEnd}"></label>
       <label><input type="checkbox" data-pref="showDetails" \${np.showDetails ? 'checked' : ''}> Show details on the lock screen</label></div>\`;
-    return \`<div class="card"><strong>Controls</strong><pre>\${esc(JSON.stringify(t.controls, null, 2))}</pre>
+    const [contacts, conns, fb, dlq] = await Promise.all([api('/v1/contacts').catch(() => []), api('/v1/connections').catch(() => []), api('/v1/feedback').catch(() => ({ rules: [] })), api('/v1/dead-letters').catch(() => [])]);
+    const ctl = t.controls;
+    const state = ctl.emergencyStop ? '<span class="bad">Emergency stop is on</span>' : ctl.globalPaused ? '<span class="bad">Paused</span>' : '<span class="good">Running</span>';
+    const connPause = conns.filter((c) => c.connected).map((c) => { const p = ctl.pausedConnectors.includes(c.id); return \`<div>\${esc(c.provider)} <button class="btn" data-pausec="\${esc(c.id)}|\${p ? 'resume' : 'pause'}">\${p ? 'Resume' : 'Pause'}</button></div>\`; }).join('');
+    const contactPause = contacts.map((c) => \`<div>\${esc(c.name)} <span class="muted">\${esc(c.identities.map((i) => i.value).join(', '))}</span> <button class="btn" data-pausek="\${esc(c.id)}|\${c.paused ? 'resume' : 'pause'}">\${c.paused ? 'Resume' : 'Pause'}</button></div>\`).join('') || '<div class="muted">No contacts yet.</div>';
+    const rules = fb.rules.map((r) => \`<div class="card">\${esc(r.rule)} <span class="muted">· \${esc(r.impact)} · \${esc(r.status)}</span>\${r.status === 'proposed' || r.status === 'auto_applied' ? \`<div class="row"><button class="btn" data-rule="\${esc(r.id)}|approved">Keep</button><button class="btn" data-rule="\${esc(r.id)}|rejected">Drop</button></div>\` : ''}</div>\`).join('') || '<p class="muted">No learned rules yet. Jennifer proposes one after repeated corrections.</p>';
+    const problems = dlq.map((d) => \`<div class="card bad">\${esc(d.kind)}: \${esc(d.error)}<div class="muted">\${esc(d.recoveryAction)}</div><div class="row"><button class="btn" data-dlq="\${esc(d.id)}|retry">Try again (asks you first)</button><button class="btn" data-dlq="\${esc(d.id)}|dismiss">Dismiss</button></div></div>\`).join('');
+    return (problems ? '<h2>Problems</h2>' + problems : '') + \`<div class="card"><strong>Controls</strong> \${state}
       <div class="row"><button class="btn" data-ctl="pause">Pause Jennifer</button><button class="btn" data-ctl="resume">Resume</button><button class="btn danger" data-ctl="emergency-stop">Emergency stop</button></div>
-      <p class="muted">Stopping cancels queued work. Messages already sent cannot reliably be unsent.</p></div>\` + notif;
+      <p class="muted">Stopping cancels queued work. Messages already sent cannot reliably be unsent.</p>
+      <details><summary>Pause one account</summary>\${connPause || '<div class="muted">No connected accounts.</div>'}</details>
+      <details><summary>Pause one contact</summary>\${contactPause}</details></div>
+      <h2>What Jennifer learned</h2>\${rules}\` + notif;
   },
 };
+let current = 'today';
+let convOpen = null;
 async function show(tab) {
+  current = tab;
   document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'));
-  try { $('#view').innerHTML = await views[tab](); $('#status').textContent = ''; } catch (e) { $('#status').textContent = 'Error: ' + e.message; }
+  try { $('#view').innerHTML = await views[tab](); if (/^Error/.test($('#status').textContent)) $('#status').textContent = ''; } catch (e) { $('#status').textContent = 'Error: ' + e.message; }
 }
 document.addEventListener('click', async (e) => {
   const t = e.target;
-  if (t.dataset.tab) return show(t.dataset.tab);
+  if (t.dataset.tab) { if (t.dataset.tab === 'conversations') convOpen = null; return show(t.dataset.tab); }
   if (t.id === 'signin') return signIn().catch((err) => { $('#status').textContent = 'Sign-in failed: ' + err.message; });
   if (t.dataset.approve) { const go = () => api('/v1/actions/' + t.dataset.approve + '/approve', { method: 'POST', body: JSON.stringify({ revision: +t.dataset.rev, payloadHash: t.dataset.hash }) });
     let r; try { r = await go(); } catch (err) { if (!/second-factor/.test(err.message)) throw err; await stepUp(); r = await go(); }
-    $('#status').textContent = 'Result: ' + r.state; return show('today'); }
-  if (t.dataset.cancel) { await api('/v1/actions/' + t.dataset.cancel + '/cancel', { method: 'POST', body: '{}' }); return show('today'); }
+    $('#status').textContent = 'Result: ' + r.state; return show(current); }
+  if (t.dataset.cancel) { const w = document.querySelector('[data-why="' + t.dataset.cancel + '"]'); await api('/v1/actions/' + t.dataset.cancel + '/cancel', { method: 'POST', body: JSON.stringify({ reason: w ? w.value : 'rejected' }) }); return show(current); }
+  if (t.dataset.edit) { const el = $('#edit-' + t.dataset.edit); el.hidden = !el.hidden; return; }
+  if (t.dataset.saveedit) {
+    const id = t.dataset.saveedit; const a = await api('/v1/actions/' + id);
+    const payload = { ...a.payloadRaw, subject: $('#es-' + id).value, body: $('#eb-' + id).value };
+    try { await api('/v1/actions/' + id + '/edit', { method: 'POST', body: JSON.stringify({ payload }) }); $('#status').textContent = 'Saved. Review and approve the new version.'; } catch (err) { $('#status').textContent = 'Edit: ' + err.message; }
+    return show(current);
+  }
+  if (t.dataset.conv !== undefined) { convOpen = t.dataset.conv || null; return show('conversations'); }
+  if (t.dataset.pausec) { const [id, op] = t.dataset.pausec.split('|'); await api('/v1/controls/' + op, { method: 'POST', body: JSON.stringify({ connectorId: id }) }); return show('settings'); }
+  if (t.dataset.pausek) { const [id, op] = t.dataset.pausek.split('|'); await api('/v1/controls/' + op, { method: 'POST', body: JSON.stringify({ contactId: id }) }); return show('settings'); }
+  if (t.dataset.rule) { const [id, st] = t.dataset.rule.split('|'); await api('/v1/feedback/rules/' + encodeURIComponent(id), { method: 'POST', body: JSON.stringify({ status: st }) }); return show('settings'); }
+  if (t.dataset.dlq) { const [id, op] = t.dataset.dlq.split('|'); try { await api('/v1/dead-letters/' + id + '/' + op, { method: 'POST', body: '{}' }); } catch (err) { $('#status').textContent = err.message; } return show(op === 'retry' ? 'today' : 'settings'); }
+  if (t.dataset.memfix) { const v = prompt('What is correct?'); if (v) { await api('/v1/memory/' + t.dataset.memfix + '/correct', { method: 'POST', body: JSON.stringify({ value: v }) }); $('#status').textContent = 'Corrected. The old entry is kept as superseded.'; } return; }
+  if (t.dataset.memexport) {
+    const data = await api('/v1/memory/export');
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a'); link.href = url; link.download = 'jennifer-memory.json'; link.click(); URL.revokeObjectURL(url); return;
+  }
   if (t.id === 'voice') return rtc ? stopVoice() : startVoice().catch((err) => { stopVoice(); $('#status').textContent = 'Voice: ' + err.message; });
   if (t.dataset.audition) {
     t.disabled = true;
@@ -341,7 +387,8 @@ document.addEventListener('change', async (e) => {
   }
   if (e.target.id !== 'mq') return;
   const res = await api('/v1/memory?q=' + encodeURIComponent(e.target.value));
-  $('#mres').innerHTML = res.map(r => \`<div class="card">\${esc(r.entry.value)}<div class="muted">\${esc(r.freshness)} · source \${esc(r.sourceRef)}</div></div>\`).join('') || '<p class="muted">No matching memory.</p>';
+  const list = Array.isArray(res) ? res.map((r) => r.entry ? r : { entry: r, freshness: r.status, sourceRef: r.source && r.source.ref }) : [];
+  $('#mres').innerHTML = list.map(r => \`<div class="card">\${esc(r.entry.value)}<div class="muted">\${esc(r.freshness)} · source \${esc(r.sourceRef)}</div><div class="row"><button class="btn" data-memfix="\${r.entry.id}">Correct</button><button class="btn" data-memact="\${r.entry.id}|delete">Forget</button></div></div>\`).join('') || '<p class="muted">No matching memory.</p>';
 });
 // ---- Live voice: WebRTC straight to the realtime model with an ephemeral key; tools run on our server.
 let rtc = null;

@@ -6,14 +6,43 @@ import type { Channel } from '../core/types.js';
  * Global pause, per-connector pause, per-contact pause and emergency stop
  * (spec §14). Stopping cancels queued work; it cannot unsend sent messages.
  */
+export interface ControlsSnapshot {
+  emergency: boolean;
+  globalPaused: boolean;
+  pausedConnectors: string[];
+  pausedContacts: string[];
+}
+
 export class Controls {
   private globalPaused = false;
   private emergency = false;
   private pausedConnectors = new Set<string>();
   private pausedContacts = new Set<string>();
   private listeners: Array<(kind: 'emergency' | 'global' | 'connector' | 'contact', id?: string) => void> = [];
+  private changeListeners: Array<() => void> = [];
 
   constructor(private audit: AuditLog) {}
+
+  /** Any change (pause or resume) — used to persist the switches. */
+  onChange(fn: () => void): void {
+    this.changeListeners.push(fn);
+  }
+
+  snapshot(): ControlsSnapshot {
+    return { emergency: this.emergency, globalPaused: this.globalPaused, pausedConnectors: [...this.pausedConnectors], pausedContacts: [...this.pausedContacts] };
+  }
+
+  /** A restart never silently lifts a pause or an emergency stop. */
+  restore(s: ControlsSnapshot): void {
+    this.emergency = s.emergency;
+    this.globalPaused = s.globalPaused;
+    this.pausedConnectors = new Set(s.pausedConnectors);
+    this.pausedContacts = new Set(s.pausedContacts);
+  }
+
+  private changed(): void {
+    this.changeListeners.forEach((l) => l());
+  }
 
   onStop(fn: (kind: 'emergency' | 'global' | 'connector' | 'contact', id?: string) => void): void {
     this.listeners.push(fn);
@@ -23,12 +52,14 @@ export class Controls {
     this.emergency = true;
     this.globalPaused = true;
     this.audit.record(actor, 'controls.emergency_stop', undefined, {});
+    this.changed();
     this.listeners.forEach((l) => l('emergency'));
   }
 
   pauseAll(actor: string): void {
     this.globalPaused = true;
     this.audit.record(actor, 'controls.global_pause', undefined, {});
+    this.changed();
     this.listeners.forEach((l) => l('global'));
   }
 
@@ -36,28 +67,33 @@ export class Controls {
     this.globalPaused = false;
     this.emergency = false;
     this.audit.record(actor, 'controls.global_resume', undefined, {});
+    this.changed();
   }
 
   pauseConnector(actor: string, connectorId: string): void {
     this.pausedConnectors.add(connectorId);
     this.audit.record(actor, 'controls.connector_pause', connectorId, {});
+    this.changed();
     this.listeners.forEach((l) => l('connector', connectorId));
   }
 
   resumeConnector(actor: string, connectorId: string): void {
     this.pausedConnectors.delete(connectorId);
     this.audit.record(actor, 'controls.connector_resume', connectorId, {});
+    this.changed();
   }
 
   pauseContact(actor: string, contactId: string): void {
     this.pausedContacts.add(contactId);
     this.audit.record(actor, 'controls.contact_pause', contactId, {});
+    this.changed();
     this.listeners.forEach((l) => l('contact', contactId));
   }
 
   resumeContact(actor: string, contactId: string): void {
     this.pausedContacts.delete(contactId);
     this.audit.record(actor, 'controls.contact_resume', contactId, {});
+    this.changed();
   }
 
   /** Returns a blocking reason or undefined when execution may proceed. */
@@ -112,8 +148,22 @@ export class SuppressionList {
     private audit: AuditLog,
   ) {}
 
+  private changeListeners: Array<() => void> = [];
+
   onAdd(fn: (rule: SuppressionRule) => void): void {
     this.listeners.push(fn);
+  }
+
+  onChange(fn: () => void): void {
+    this.changeListeners.push(fn);
+  }
+
+  all(): SuppressionRule[] {
+    return this.rules.map((r) => ({ ...r }));
+  }
+
+  restore(rules: SuppressionRule[]): void {
+    this.rules = rules.map((r) => ({ ...r, createdAt: new Date(r.createdAt), liftedAt: r.liftedAt ? new Date(r.liftedAt) : undefined }));
   }
 
   add(input: Omit<SuppressionRule, 'id' | 'createdAt' | 'liftedAt'>): SuppressionRule {
@@ -127,6 +177,7 @@ export class SuppressionList {
     this.rules.push(rule);
     this.audit.record(input.createdBy, 'suppression.added', rule.id, { contactId: rule.contactId, domain: rule.domain, reason: rule.reason });
     this.listeners.forEach((l) => l(rule));
+    this.changeListeners.forEach((l) => l());
     return rule;
   }
 
@@ -135,6 +186,7 @@ export class SuppressionList {
     if (r && !r.liftedAt) {
       r.liftedAt = this.clock.now();
       this.audit.record(actor, 'suppression.lifted', id, {});
+      this.changeListeners.forEach((l) => l());
     }
   }
 

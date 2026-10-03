@@ -132,6 +132,11 @@ export class PgStateStore implements ActionDurability {
     return this.q.flush();
   }
 
+  /** Ordered write for small state snapshots (controls, suppressions, feedback). */
+  enqueue(fn: () => Promise<void>): void {
+    this.q.push(fn);
+  }
+
   audit(ev: AuditEvent): void {
     this.q.push(async () => {
       await this.db.query('INSERT INTO audit_event (id, at, owner_id, actor, kind, subject_id, detail) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING', [
