@@ -14,9 +14,14 @@ export interface UntrustedBlock {
 const INJECTION_PATTERNS: Array<[string, RegExp]> = [
   ['instruction_override', /\b(ignore|disregard|forget)\b[^.]{0,40}\b(previous|prior|above|your|all)\b[^.]{0,20}\b(instructions|rules|prompt|guidelines)\b/i],
   ['exfiltration_request', /\b(forward|send|share|export|upload)\b[^.]{0,60}\b(all|every|entire)\b[^.]{0,40}\b(emails?|messages|statements|documents|files|contacts|history)\b/i],
-  ['credential_request', /\b(send|share|provide|tell|give)\b[^.]{0,40}\b(password|verification code|2fa|otp|one[- ]time code|authentication code|security code|login code)\b/i],
+  ['credential_request', /\b(send|share|provide|tell|give|reply with|enter|confirm)\b[^.]{0,40}\b(password|verification code|2fa|otp|one[- ]time code|authentication code|security code|login code)\b/i],
   ['settings_change', /\b(change|update|disable|turn off)\b[^.]{0,40}\b(settings|permissions|forwarding|rules|security|2fa)\b/i],
   ['role_play', /\b(you are now|act as|new system prompt|developer mode)\b|\b(system|assistant)\s*:/i],
+  // Italian, Brazilian Portuguese and Spanish (Bruno's languages; spec §20 multilingual adversarial cases).
+  ['instruction_override', /\b(ignora|ignore|ignorar|dimentica|esqueça|esquece|olvida)\b[^.]{0,40}\b(istruzioni|regole|instruções|instrucoes|regras|instrucciones|reglas)\b/i],
+  ['exfiltration_request', /\b(inoltra|invia|inviami|manda|mandami|condividi|encaminhe|encaminha|envie|envia|compartilhe|reenvía|reenvia|envía|envíame|enviame|mándame|comparte)\b[^.]{0,60}\b(tutte|tutti|todas|todos)\b[^.]{0,40}\b(e-?mails?|messaggi|mensagens|mensajes|estratti|extratos|extractos|documenti|documentos|contatti|contatos|contactos|correos)\b/i],
+  ['credential_request', /\b(invia|inviami|dimmi|fornisci|manda|envie|me envie|informe|diga|envíame|envíe|dime|proporciona)\b[^.]{0,40}\b(password|senha|contraseña|codice di verifica|codice otp|código de verificação|código de verificación|código|codice)\b/i],
+  ['settings_change', /\b(cambia|modifica|disattiva|altere|mude|desative|desativa|desactiva|cambie)\b[^.]{0,40}\b(impostazioni|permessi|inoltro|configurações|permissões|encaminhamento|configuración|permisos|reenvío)\b/i],
   // Patterns below adapted from OpenJarvis security/injection_scanner.py (Apache-2.0); see THIRD_PARTY_LICENSES.
   ['identity_override', /\byou\s+are\s+now\s+(?:a\s+)?(?:different|new|my)\b/i],
   ['code_injection', /\b(?:execute|run|eval)\s*\(\s*['"]/i],

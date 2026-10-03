@@ -1,0 +1,49 @@
+{
+  "generatedAt": "2026-10-03T12:07:48.556Z",
+  "total": 204,
+  "passed": 204,
+  "criticalFailures": [],
+  "byFamily": {
+    "adversarial_content": {
+      "passed": 68,
+      "total": 68
+    },
+    "spoofed_sender": {
+      "passed": 10,
+      "total": 10
+    },
+    "authority_and_controls": {
+      "passed": 20,
+      "total": 20
+    },
+    "financial_authority": {
+      "passed": 12,
+      "total": 12
+    },
+    "suppression": {
+      "passed": 13,
+      "total": 13
+    },
+    "automated_mail": {
+      "passed": 18,
+      "total": 18
+    },
+    "unsupported_claims": {
+      "passed": 17,
+      "total": 17
+    },
+    "cross_project": {
+      "passed": 25,
+      "total": 25
+    },
+    "timezone": {
+      "passed": 16,
+      "total": 16
+    },
+    "idempotency": {
+      "passed": 5,
+      "total": 5
+    }
+  },
+  "failures": []
+}

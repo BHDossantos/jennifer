@@ -13,6 +13,10 @@ export type ClaimKind = 'payment_completed' | 'item_returned' | 'application_sub
 
 const CLAIM_PATTERNS: Array<[ClaimKind, RegExp]> = [
   ['payment_completed', /\b(payment|invoice|transfer|bill)\b[^.!?]{0,60}\b(has been|was|is)\s+(paid|cleared|settled|sent|processed|completed)\b|\b(i|we|bruno)\s+(have|has)\s+(paid|settled|transferred)\b|\bpagamento\b[^.!?]{0,40}\b(effettuato|eseguito|pago|realizado)\b/i],
+  ['payment_completed', /\b(ho|abbiamo|bruno ha)\s+(pagato|saldato|bonificato)\b|\b(já\s+)?(paguei|pagamos|transferi)\b|\b(he|hemos|ya)\s+(pagado|transferido)\b|\bfattura\b[^.!?]{0,40}\b(pagata|saldata)\b|\bfactura\b[^.!?]{0,40}\b(pagada)\b/i],
+  ['document_signed', /\b(ho|abbiamo)\s+firmato\b|\b(assinei|assinamos)\b|\b(he|hemos)\s+firmado\b|\bcontratto\b[^.!?]{0,40}\bfirmato\b|\bcontrato\b[^.!?]{0,40}\b(assinado|firmado)\b/i],
+  // No trailing \b: accented endings (à, á) are not word characters for \b.
+  ['callback_promised', /\bbruno\s+(ti|la|vi)\s+(richiamerà|richiama)|\bbruno\s+(vai\s+)?(te\s+|lhe\s+)?(ligar|retornar)\b|\bbruno\s+(te|le|lo)\s+(llamará|devolverá|llama)/i],
   ['item_returned', /\b(equipment|device|item|keys?|package|laptop)\b[^.!?]{0,60}\b(has been|was)\s+(returned|shipped back|sent back|dropped off)\b/i],
   ['application_submitted', /\b(application|form|claim|request)\b[^.!?]{0,60}\b(has been|was)\s+(submitted|filed|sent)\b|\b(i|we|bruno)\s+(have|has)\s+(applied|submitted|filed)\b/i],
   ['document_signed', /\b(contract|agreement|document)\b[^.!?]{0,60}\b(has been|was|is)\s+signed\b|\b(i|we|bruno)\s+(have|has)\s+signed\b/i],
