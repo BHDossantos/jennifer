@@ -57,6 +57,7 @@ const LABELS: Record<string, string> = {
   propose_email: 'Preparing an email',
   web_search: 'Searching the web',
   read_web_page: 'Reading a web page',
+  ask_ai: 'Asking GPT and Claude',
   search_ai_history: 'Looking through your ChatGPT and Claude history',
 };
 
@@ -262,6 +263,7 @@ export class MissionService {
       readCtx.scopes.add('web:read');
       fromRegistry('web_search');
       fromRegistry('read_web_page');
+      fromRegistry('ask_ai');
     }
     if (m.sources.includes('ai_history')) {
       readCtx.scopes.add('history:read');

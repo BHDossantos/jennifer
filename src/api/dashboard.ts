@@ -213,7 +213,8 @@ const views = {
     return (v.configured ? '' : '<div class="card bad">Voice needs OPENAI_API_KEY on the server.</div>') +
       '<p class="muted">Listen to each voice and choose Jennifer\\u2019s. Private mode is how she speaks to you; business mode is how she sounds to everyone else.</p>' + cards +
       \`<div class="card"><strong>Delivery</strong>\${slider('warmth', 0, 1, 0.1)}\${slider('playfulness', 0, 1, 0.1)}\${slider('speakingRate', 0.75, 1.25, 0.05)}
-      <label>Mode <select data-voiceset="mode"><option value="private" \${s.mode === 'private' ? 'selected' : ''}>Private (with you)</option><option value="business" \${s.mode === 'business' ? 'selected' : ''}>Business</option></select></label></div>\`
+      <label>Mode <select data-voiceset="mode"><option value="private" \${s.mode === 'private' ? 'selected' : ''}>Private (with you)</option><option value="business" \${s.mode === 'business' ? 'selected' : ''}>Business</option></select></label>
+      <label>Accent <select data-voiceset="accent">\${['british', 'american', 'australian', 'neutral'].map((a) => \`<option value="\${a}" \${(s.accent || 'british') === a ? 'selected' : ''}>\${a[0].toUpperCase() + a.slice(1)}</option>\`).join('')}</select></label></div>\`
       + \`<div class="card"><strong>Push to talk (exact transcript)</strong>
       <p class="muted">Slower than the Talk button, but you see exactly what was heard and said. Hold the button while you speak.</p>
       <button class="btn primary" id="ptt" aria-label="Hold to talk">Hold to talk</button><div id="pttlog" aria-live="polite"></div></div>
@@ -376,7 +377,7 @@ document.addEventListener('change', async (e) => {
     await api('/v1/notifications/prefs', { method: 'PUT', body: JSON.stringify({ [k]: v }) }); return;
   }
   if (e.target.dataset && e.target.dataset.voiceset) {
-    const k = e.target.dataset.voiceset; const v = k === 'mode' ? e.target.value : Number(e.target.value);
+    const k = e.target.dataset.voiceset; const v = k === 'mode' || k === 'accent' ? e.target.value : Number(e.target.value);
     await api('/v1/voice/settings', { method: 'PUT', body: JSON.stringify({ [k]: v }) }); return;
   }
   if (e.target.id === 'histfile' && e.target.files && e.target.files[0]) {

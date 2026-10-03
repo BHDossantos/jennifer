@@ -328,7 +328,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
 
   // ---- Voice -----------------------------------------------------------------
-  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'search_ai_history', 'web_search'];
+  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'search_ai_history', 'web_search', 'ask_ai'];
   const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read', 'web:read']) };
   type StoredVoice = VoiceSettings & { mode: 'private' | 'business' };
   const voiceSettings = async (): Promise<StoredVoice> => ({ ...DEFAULT_VOICE, voiceId: 'marin', mode: 'private', ...(await j.settings.get<StoredVoice>('voice')) });
@@ -345,6 +345,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
         verbosity: z.enum(['brief', 'normal', 'detailed']).optional(),
         mode: z.enum(['private', 'business']).optional(),
         provider: z.enum(['realtime_s2s', 'chained_asr_llm_tts']).optional(),
+        accent: z.enum(['british', 'american', 'australian', 'neutral']).optional(),
         /** How to say names and words, e.g. {"Bianchi": "Bee-AHN-kee"}. */
         pronunciations: z.record(z.string().min(1).max(60), z.string().min(1).max(120)).optional(),
       })

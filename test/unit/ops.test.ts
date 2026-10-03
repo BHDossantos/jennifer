@@ -98,3 +98,12 @@ describe('web research (§12)', () => {
     expect(calls[0].tools[0]).toMatchObject({ type: 'web_search_20260209' });
   });
 });
+
+describe('ask_ai: GPT and Claude side by side', () => {
+  it('asks both providers with web search and keeps going if one fails', async () => {
+    const fetchImpl = (async () => new Response(JSON.stringify({ output: [{ type: 'message', content: [{ type: 'output_text', text: 'GPT says 42.', annotations: [] }] }] }), { status: 200 })) as unknown as typeof fetch;
+    const client = { beta: { messages: { create: async () => { throw new Error('overloaded'); } } } };
+    const r = await new WebResearch({ provider: 'openai', model: 'gpt-5', openaiKey: 'k', anthropicClient: client as never, fetchImpl }).ask('meaning of life');
+    expect(r.answers).toEqual([{ from: 'GPT', answer: 'GPT says 42.', sources: [] }, { from: 'Claude', error: 'overloaded' }]);
+  });
+});

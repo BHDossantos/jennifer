@@ -23,6 +23,9 @@ export interface WebResearchOptions {
   openaiBaseUrl?: string;
   anthropicKey?: string;
   anthropicClient?: ClaudeClient;
+  /** Models used by ask() when consulting each provider. */
+  openaiModel?: string;
+  claudeModel?: string;
   fetchImpl?: typeof fetch;
   resolve?: (host: string) => Promise<string[]>;
 }
@@ -72,11 +75,24 @@ export class WebResearch {
     throw new JenniferError('web.unavailable', 'Web search needs an OpenAI or Anthropic key on the server');
   }
 
-  private async searchOpenAI(query: string): Promise<WebSearchResult> {
+  /**
+   * Ask GPT and Claude (whichever keys are configured), each with live web
+   * search, and return both answers side by side. Uses Bruno's own API keys.
+   */
+  async ask(question: string, which: 'both' | 'openai' | 'claude' = 'both'): Promise<{ answers: Array<{ from: 'GPT' | 'Claude'; answer: string; sources: WebSearchResult['sources'] } | { from: 'GPT' | 'Claude'; error: string }> }> {
+    const jobs: Array<Promise<{ from: 'GPT' | 'Claude'; answer: string; sources: WebSearchResult['sources'] } | { from: 'GPT' | 'Claude'; error: string }>> = [];
+    const wrap = (from: 'GPT' | 'Claude', p: Promise<WebSearchResult>) => p.then((r) => ({ from, ...r })).catch((e: Error) => ({ from, error: redactSecrets(e.message) }));
+    if (which !== 'claude' && this.o.openaiKey) jobs.push(wrap('GPT', this.searchOpenAI(question, this.o.openaiModel ?? 'gpt-5')));
+    if (which !== 'openai' && (this.o.anthropicKey || this.o.anthropicClient)) jobs.push(wrap('Claude', this.searchClaude(question, this.o.claudeModel ?? 'claude-opus-5-5')));
+    if (!jobs.length) throw new JenniferError('web.unavailable', 'Asking GPT or Claude needs OPENAI_API_KEY or ANTHROPIC_API_KEY on the server');
+    return { answers: await Promise.all(jobs) };
+  }
+
+  private async searchOpenAI(query: string, model = this.o.model): Promise<WebSearchResult> {
     const res = await (this.o.fetchImpl ?? fetch)(`${this.o.openaiBaseUrl ?? 'https://api.openai.com/v1'}/responses`, {
       method: 'POST',
       headers: { authorization: `Bearer ${this.o.openaiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: this.o.model, tools: [{ type: 'web_search' }], input: `Search the web and answer concisely with sources: ${query}`, store: false }),
+      body: JSON.stringify({ model, tools: [{ type: 'web_search' }], input: `Search the web and answer concisely with sources: ${query}`, store: false }),
     });
     if (!res.ok) throw new JenniferError('web.search_failed', `Web search failed (${res.status}): ${redactSecrets(await res.text()).slice(0, 300)}`);
     const json = (await res.json()) as { output?: Array<{ type: string; content?: Array<{ type: string; text?: string; annotations?: Array<{ type: string; url?: string; title?: string }> }> }> };
@@ -85,14 +101,14 @@ export class WebResearch {
     return { answer: parts.map((p) => p.text ?? '').join(''), sources: dedupe(sources) };
   }
 
-  private async searchClaude(query: string): Promise<WebSearchResult> {
+  private async searchClaude(query: string, model = this.o.model): Promise<WebSearchResult> {
     const client = this.o.anthropicClient ?? (new Anthropic({ apiKey: this.o.anthropicKey }) as unknown as ClaudeClient);
     const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = [{ role: 'user', content: `Search the web and answer concisely with sources: ${query}` }];
     let msg;
     // A long server-side search can pause; resume a bounded number of times.
     for (let i = 0; i < 4; i++) {
       msg = await client.beta.messages.create({
-        model: this.o.model,
+        model,
         max_tokens: 4000,
         messages: messages as never,
         tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 5 }] as never,

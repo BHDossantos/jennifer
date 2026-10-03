@@ -1,6 +1,6 @@
 import { JenniferError } from '../core/types.js';
 import { redactSecrets } from '../security/redaction.js';
-import { personaInstructions, VOICE_DIRECTION, GREETINGS, type DeliveryMode, type VoiceLanguage, type VoiceSettings } from './persona.js';
+import { personaInstructions, VOICE_DIRECTION, ACCENT_DIRECTION, GREETINGS, type DeliveryMode, type VoiceLanguage, type VoiceSettings } from './persona.js';
 
 /**
  * Jennifer's voice (spec §8). Realtime speech-to-speech over WebRTC: the
@@ -26,10 +26,11 @@ export const FEMALE_VOICE_CANDIDATES: VoiceCandidate[] = [
 export const DEFAULT_VOICE_ID = 'marin';
 
 /** Style direction applied to speech (TTS instructions and realtime instructions). */
-export function deliveryDirection(mode: DeliveryMode, s: Pick<VoiceSettings, 'warmth' | 'speakingRate' | 'playfulness'>): string {
+export function deliveryDirection(mode: DeliveryMode, s: Pick<VoiceSettings, 'warmth' | 'speakingRate' | 'playfulness' | 'accent'>): string {
   const pace = s.speakingRate < 0.95 ? 'unhurried' : s.speakingRate > 1.05 ? 'brisk' : 'relaxed';
-  if (mode === 'business') return `${VOICE_DIRECTION.business} Pace: ${pace}.`;
-  return `${VOICE_DIRECTION.private} Lower, warm register; ${pace} pace; warmth ${s.warmth.toFixed(1)} of 1, playfulness ${s.playfulness.toFixed(1)} of 1. Speak to Bruno as a trusted, confident companion; never theatrical.`;
+  const accent = ACCENT_DIRECTION[s.accent ?? 'british'];
+  if (mode === 'business') return `${VOICE_DIRECTION.business} ${accent} Pace: ${pace}.`;
+  return `${VOICE_DIRECTION.private} ${accent} Lower, warm register; ${pace} pace; warmth ${s.warmth.toFixed(1)} of 1, playfulness ${s.playfulness.toFixed(1)} of 1. Speak to Bruno as a trusted, confident companion; never theatrical.`;
 }
 
 export interface VoiceToolSpec {
@@ -108,7 +109,7 @@ export class RealtimeVoiceService {
   /** Spoken sample for the voice audition, cached per (voice, mode, language, settings). */
   async sample(voice: string, mode: DeliveryMode, language: VoiceLanguage, settings: VoiceSettings): Promise<Buffer> {
     if (!FEMALE_VOICE_CANDIDATES.some((c) => c.id === voice)) throw new JenniferError('voice.unknown', `Unknown voice ${voice}`);
-    const cacheKey = `${voice}|${mode}|${language}|${settings.warmth}|${settings.speakingRate}|${settings.playfulness}`;
+    const cacheKey = `${voice}|${mode}|${language}|${settings.warmth}|${settings.speakingRate}|${settings.playfulness}|${settings.accent ?? "british"}`;
     const hit = this.audition.get(cacheKey);
     if (hit) return hit;
     const res = await this.f()(`${this.cfg.baseUrl}/audio/speech`, {

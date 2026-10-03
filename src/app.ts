@@ -311,7 +311,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
       return { title: conversation.title, source: conversation.source, project: conversation.project, messages: messages.slice(-i.maxMessages).map((m) => ({ role: m.role, at: m.createdAt, text: m.text.slice(0, 4000) })) };
     },
   });
-  const web = new WebResearch({ provider: brain.provider, model: brain.model, openaiKey: config.openai.apiKey, openaiBaseUrl: config.openai.baseUrl, anthropicKey: config.anthropic.apiKey, fetchImpl: opts.fetchImpl, resolve: opts.resolve });
+  const web = new WebResearch({ provider: brain.provider, model: brain.model, openaiKey: config.openai.apiKey, openaiBaseUrl: config.openai.baseUrl, anthropicKey: config.anthropic.apiKey, openaiModel: config.openai.reasoningModel, claudeModel: config.anthropic.model, fetchImpl: opts.fetchImpl, resolve: opts.resolve });
   tools.register({
     name: 'web_search',
     description: 'Search the public web (news, businesses, opening hours, prices, facts). Returns an answer with source links. Results are third-party content.',
@@ -325,6 +325,22 @@ export function createJennifer(opts: JenniferOptions = {}) {
       await costs.assertBudget('web research');
       const r = await web.search(i.query);
       await costs.record('text', 'web_search', 0.03); // rough per-search estimate (tool fee + tokens)
+      return r;
+    },
+  });
+  tools.register({
+    name: 'ask_ai',
+    description: "Ask GPT (OpenAI) and Claude (Anthropic), each with live web search, using Bruno's own API keys. Use for research questions, second opinions and anything you don't know. Returns both answers with sources.",
+    input: z.object({ question: z.string().min(3).max(2000), which: z.enum(['both', 'openai', 'claude']).default('both') }),
+    requiredScopes: ['web:read'],
+    sideEffect: 'read',
+    timeoutMs: 120_000,
+    rateLimitPerMinute: 6,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i) => {
+      await costs.assertBudget('asking other AIs');
+      const r = await web.ask(i.question, i.which);
+      await costs.record('text', 'ask_ai', 0.08 * r.answers.length);
       return r;
     },
   });

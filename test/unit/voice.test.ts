@@ -126,3 +126,17 @@ describe('chained voice (push to talk)', () => {
     expect(j.metrics.snapshot().latenciesMs.voice_chained_total_ms!.n).toBe(1);
   });
 });
+
+describe('British voice and private persona', () => {
+  it('private mode: British accent, sultry delivery, no AI disclaimers to Bruno; business mode still introduces itself honestly', async () => {
+    const { personaInstructions, DEFAULT_VOICE } = await import('../../src/voice/persona.js');
+    const { deliveryDirection } = await import('../../src/voice/realtime.js');
+    const priv = personaInstructions('private', DEFAULT_VOICE, 'en');
+    expect(priv).toMatch(/British accent/);
+    expect(priv).toMatch(/never remind him you are an AI/);
+    expect(deliveryDirection('private', DEFAULT_VOICE)).toMatch(/sultry/);
+    const biz = personaInstructions('business', DEFAULT_VOICE, 'en');
+    expect(biz).toMatch(/AI assistant/);
+    expect(biz).not.toMatch(/sultry/);
+  });
+});

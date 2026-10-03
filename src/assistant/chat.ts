@@ -13,7 +13,7 @@ import { personaInstructions, DEFAULT_VOICE, type DeliveryMode } from '../voice/
  * Bruno states are remembered only when the memory quotes his own words;
  * anything else (e.g. inspired by an email) waits for review.
  */
-const CHAT_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'get_calendar', 'find_free_slots', 'propose_event', 'search_ai_history', 'read_ai_conversation', 'web_search', 'read_web_page'];
+const CHAT_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'get_calendar', 'find_free_slots', 'propose_event', 'search_ai_history', 'read_ai_conversation', 'web_search', 'read_web_page', 'ask_ai'];
 const MAX_HISTORY = 40;
 
 interface ChatSession {
@@ -60,6 +60,7 @@ export class ChatService {
         personaInstructions(input.mode ?? 'private', DEFAULT_VOICE, 'en'),
         'You are chatting by text with Bruno in the Jennifer app. Be concise; plain text, no markdown tables.',
         `Bruno's home time zone is ${this.d.homeTimeZone}. Current time: ${this.d.clock.now().toISOString()}.`,
+        'For research, current facts or a second opinion, use ask_ai (GPT and Claude with web search) or web_search, and cite sources.',
         'For anything Bruno discussed with ChatGPT or Claude, use search_ai_history; you only see what he exported or shared, so say so when it is not there.',
         'Use tools for facts about his day, inbox, missions and memory. Proposing or drafting a message never sends it: say it is waiting for his approval.',
         'When Bruno tells you something worth keeping (a preference, an instruction, a fact), call remember with his exact words as the quote.',
