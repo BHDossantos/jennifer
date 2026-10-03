@@ -22,6 +22,7 @@ import { AgentCoordinator } from './agents/agents.js';
 import { WorkflowRegistry, buildDailyBrief } from './workflows/workflows.js';
 import { Metrics } from './ops/metrics.js';
 import { RetentionService } from './ops/retention.js';
+import { StyleLearner } from './learning/styleLearner.js';
 import { WebResearch } from './research/web.js';
 import { TwilioSms } from './connectors/sms/twilio.js';
 import { ChainedVoice } from './voice/chained.js';
@@ -355,6 +356,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     retry: { maxAttempts: 1, retryOn: 'never' },
     run: async (i) => web.read(i.url, i.maxChars),
   });
+  const styleLearner = new StyleLearner({ clock, feedback, model: opts.model || brain.provider !== 'none' ? new MeteredModel(model, costs, 'learning') : undefined, modelName: brain.model, promptVersion: config.openai.promptVersion, audit });
   const retention = new RetentionService({ clock, retention: config.retention, conversations, actions, feedback, phone, audit, ownerId });
   registerCalendarTools(tools, { ownerId, calendar, actions, capabilities, clock, homeTimeZone: config.homeTimeZone });
   tools.register({
@@ -395,6 +397,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     agents,
     workflows,
     feedback,
+    styleLearner,
     sms,
     chainedVoice,
     costs,

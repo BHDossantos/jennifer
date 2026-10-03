@@ -101,7 +101,11 @@ const missionTimer = setInterval(() => {
 }, 60_000);
 missionTimer.unref();
 // Retention purge once a day (and shortly after boot).
-const retentionRun = () => void j.retention.purge().catch((e) => app.log.error(e));
+const retentionRun = () => {
+  void j.retention.purge().catch((e) => app.log.error(e));
+  // Nightly learning: turn Bruno's edits into style rules.
+  void j.styleLearner.learn().catch((e) => app.log.error(e));
+};
 const retentionTimer = setInterval(retentionRun, 24 * 3600_000);
 retentionTimer.unref();
 setTimeout(retentionRun, 60_000).unref();

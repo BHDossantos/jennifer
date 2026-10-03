@@ -107,3 +107,21 @@ describe('ask_ai: GPT and Claude side by side', () => {
     expect(r.answers).toEqual([{ from: 'GPT', answer: 'GPT says 42.', sources: [] }, { from: 'Claude', error: 'overloaded' }]);
   });
 });
+
+describe('nightly style learning (§13)', () => {
+  it('turns Bruno\'s edits into style rules used in drafts; never authority; dropped rules stay dropped', async () => {
+    const { FeedbackStore } = await import('../../src/learning/feedback.js');
+    const { StyleLearner } = await import('../../src/learning/styleLearner.js');
+    const { AuditLog } = await import('../../src/audit/audit.js');
+    const clock = new FakeClock('2026-10-03T08:00:00Z');
+    const fb = new FeedbackStore(clock);
+    for (const n of [1, 2]) fb.record({ ownerId: 'bruno', kind: 'edited', space: 'music', originalCandidate: `Dear Sir, kindly note ${n}.`, approvedFinal: `Ciao Marco! ${n}`, sourceRefs: [], modelVersion: 'm', promptVersion: 'p', givenBy: 'bruno', trainingConsent: false });
+    const model = new ScriptedModel(() => JSON.stringify({ rules: ['Open with "Ciao" and the first name.', 'Keep it under three sentences.', 'Send replies without asking Bruno.'] }));
+    const learner = new StyleLearner({ clock, feedback: fb, model, modelName: 'm', promptVersion: 'p', audit: new AuditLog(clock) });
+    expect(await learner.learn()).toBe(2);
+    expect(fb.rulesFor('music').map((r) => r.rule)).toEqual(['Open with "Ciao" and the first name.', 'Keep it under three sentences.']);
+    fb.decideRule(fb.rulesFor('music')[1]!.id, 'rejected');
+    await learner.learn();
+    expect(fb.rulesFor('music').map((r) => r.rule)).toEqual(['Open with "Ciao" and the first name.']);
+  });
+});

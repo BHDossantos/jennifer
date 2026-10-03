@@ -86,6 +86,21 @@ export class FeedbackStore {
     return before - this.items.length;
   }
 
+  /** Replace the nightly-learned style rules for one scope (Bruno's dropped rules stay dropped). */
+  replaceLearnedStyle(scope: ProposedRule['scope'], rules: string[], examples: string[]): number {
+    const prefix = `learned|${scope.space}|${scope.contactId ?? ''}|`;
+    const dropped = new Set([...this.rules.values()].filter((r) => r.id.startsWith(prefix) && r.status === 'rejected').map((r) => r.rule));
+    for (const [id, r] of this.rules) if (id.startsWith(prefix) && r.status !== 'rejected') this.rules.delete(id);
+    let n = 0;
+    rules.forEach((rule, i) => {
+      if (dropped.has(rule)) return;
+      this.rules.set(`${prefix}${i}`, { id: `${prefix}${i}`, scope, rule, examples, impact: 'style', status: 'auto_applied' });
+      n++;
+    });
+    this.changeListeners.forEach((l) => l());
+    return n;
+  }
+
   allRules(): ProposedRule[] {
     return [...this.rules.values()];
   }
