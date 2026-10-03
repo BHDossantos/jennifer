@@ -2,7 +2,7 @@
 
 Bruno's persistent executive assistant: backend foundation, policy engine, durable action pipeline and local simulator, built from the *Jennifer Virtual Assistant Developer Specification* (v1, 30 Sep 2026).
 
-> **Status:** this repository covers roughly the spec's Weeks 1–2 foundation, plus domain logic for later weeks, all running against a **local simulator**. Jennifer is **not** connected to any of Bruno's real accounts. Real connectors, the mobile app and the realtime voice gateway are adapters still to be built behind the interfaces here. See [`docs/BACKLOG.md`](docs/BACKLOG.md) for what is done and what remains.
+> **Status:** Weeks 1–2 of the spec's backlog are complete (inventory, operating contract, environments, identity, vault, Postgres persistence), with domain logic for later weeks, all running against a **local simulator**. Jennifer is **not** connected to any of Bruno's real accounts. Real connectors, the mobile app and the realtime voice gateway are adapters still to be built behind the interfaces here. See [`docs/BACKLOG.md`](docs/BACKLOG.md) for what is done and what remains.
 
 ## Core rule
 
@@ -21,10 +21,10 @@ Ambiguous provider results (timeouts) are **reconciled** before any retry. Nothi
 
 ```bash
 npm install
-npm test            # 48 tests incl. acceptance scenarios A–K (spec §20)
+npm test            # 63 tests incl. acceptance scenarios A–K and Postgres integration (PGlite)
 npm run typecheck
 npm run simulate    # end-to-end walkthrough against the fake inbox
-npm run dev         # API + dashboard on http://localhost:8787 (dev owner token printed on start)
+npm run dev         # API + dashboard on http://localhost:8787, durable (PGlite in .data/ or DATABASE_URL)
 ```
 
 Node ≥ 20. Copy `.env.example` to `.env` for configuration. In development, the server seeds simulated contacts, a calendar event, standing instructions and an inbound email.
@@ -49,12 +49,16 @@ Node ≥ 20. Copy `.env.example` to `.env` for configuration. In development, th
 | `src/learning/` | §13 | Feedback capture, scoped rule proposals, leakage-safe splits, model registry with gates and rollback |
 | `src/assistant/inbound.ts` | §6 | Inbound email → event → conversation → grounded draft → proposed action |
 | `src/api/` | §14, §15 | Fastify API with role-based bearer auth, signed webhooks, minimal dashboard |
+| `src/db/` | §3, §5 | Postgres port (node-postgres / PGlite), checksummed migrations, durable event log, outbox and audit |
+| `src/identity/` | §4 | Passkeys, device-bound sessions, step-up, device revocation; envelope-encrypted vault (KMS in production) |
+| `src/setup/`, `config/inventory.json` | §2 | Device and account inventory and blockers (iPhone 17 Pro Max, AT&T) |
 | `db/migrations/` | §15 | PostgreSQL + pgvector schema for all required entities, with row-level security |
+| `deploy/terraform/`, `Dockerfile` | §3 | Staging and production on Cloud Run + Cloud SQL, KMS, Secret Manager, keyless deploys |
 | `test/acceptance/` | §20 | Scenarios A–K |
 
 ## Architecture notes
 
-- **Single modular service** (spec §3). The composition root is `src/app.ts`. Storage is in-memory, behind the same class boundaries that PostgreSQL repositories will implement; `db/migrations/0001_init.sql` is the target schema.
+- **Single modular service** (spec §3). The composition root is `src/app.ts`. `createDurableJennifer` runs migrations and persists events, audit, authority rules, contacts and the action outbox to Postgres. The `executing` record is flushed **before** any provider call, so a crash mid-send is reconciled rather than resent. Conversations and memory are still in-memory; they move to Postgres with their connectors (Weeks 3–5).
 - **Model provider adapter** (`src/core/model.ts`). It uses the OpenAI Responses API with `store: false`. Model IDs come from configuration. Tests use a scripted model.
 - **Untrusted content** is wrapped with randomized delimiters and flagged. Safety does **not** depend on detection: the executor enforces permissions no matter what the model outputs. Scenario E runs with a deliberately compromised model.
 - **Time**: events store UTC instants plus the IANA zone and the original local time. Rome routines use `Europe/Rome` wherever the device is.
@@ -63,6 +67,7 @@ Node ≥ 20. Copy `.env.example` to `.env` for configuration. In development, th
 
 - Refresh tokens belong in a managed vault (`account_connection.vault_secret_ref`). They never go into prompts, logs or clients.
 - Audit details and model-provider errors pass through `redactSecrets`.
+- Sign-in uses passkeys with user verification. Sessions are device-bound, stored as hashes and last 12 h. High-risk approvals need a passkey step-up within the last 5 minutes. Revoking a device kills its sessions and passkeys. The static `JENNIFER_API_TOKEN` is a bootstrap/break-glass path and can never satisfy step-up.
 - Roles: `owner`, `developer`, `operator`. Non-owner roles see connection health and redacted audit metadata only. The Postgres schema adds row-level security on messages, memory and calls.
 - Webhooks: HMAC-SHA256 over `timestamp.body` with a 5-minute tolerance. Provider-specific verifiers (Pub/Sub JWT, Graph `clientState`, Twilio signatures) go in their adapters.
 

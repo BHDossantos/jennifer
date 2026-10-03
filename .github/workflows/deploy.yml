@@ -1,0 +1,36 @@
+# Manual, environment-gated deploy to Cloud Run with keyless auth (Workload Identity Federation).
+# Configure per GitHub environment (staging / production): vars GCP_PROJECT_ID, GCP_REGION,
+# GCP_WIF_PROVIDER, GCP_DEPLOYER_SA, ARTIFACT_REPO (from `terraform output`).
+name: Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [staging, production]
+        required: true
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci && npm run typecheck && npm test
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build and push image
+        run: |
+          IMAGE="${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REPO }}/jennifer:${{ github.sha }}"
+          gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+          docker build -t "$IMAGE" . && docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - name: Deploy (migrations run on boot, checksummed)
+        run: gcloud run deploy "jennifer-${{ inputs.environment }}" --image "$IMAGE" --region "${{ vars.GCP_REGION }}" --quiet

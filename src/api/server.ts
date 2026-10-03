@@ -6,6 +6,7 @@ import type { Jennifer } from '../app.js';
 import { verifyWebhookSignature } from '../events/events.js';
 import { redactSecrets } from '../security/redaction.js';
 import { DASHBOARD_HTML } from './dashboard.js';
+import type { IdentityService, Session } from '../identity/identity.js';
 import { inventoryBlockers } from '../setup/inventory.js';
 import { AUTHORITY_TEMPLATES, enableTemplate } from '../policy/templates.js';
 
@@ -16,12 +17,15 @@ export interface ServerOptions {
   tokens: Record<string, Role>;
   webhookSecret?: string;
   logger?: boolean;
+  /** Passkey sessions. Static tokens are a bootstrap/break-glass path and can never satisfy step-up. */
+  identity?: IdentityService;
 }
 
 declare module 'fastify' {
   interface FastifyRequest {
     role?: Role;
     rawBody?: string;
+    session?: Session;
   }
 }
 
@@ -52,9 +56,25 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     const token = h.startsWith('Bearer ') ? h.slice(7) : '';
     const d = digest(token);
     const match = token ? tokenDigests.find((t) => timingSafeEqual(t.d, d)) : undefined;
-    if (!match) return reply.code(401).send({ error: 'unauthorized' });
-    if (!roles.includes(match.role)) return reply.code(403).send({ error: 'forbidden' });
-    req.role = match.role;
+    let role = match?.role;
+    if (!role && token && opts.identity) {
+      const session = await opts.identity.authenticate(token);
+      if (session) {
+        req.session = session;
+        role = session.role;
+      }
+    }
+    if (!role) return reply.code(401).send({ error: 'unauthorized' });
+    if (!roles.includes(role)) return reply.code(403).send({ error: 'forbidden' });
+    req.role = role;
+  };
+  const requireIdentity = () => {
+    if (!opts.identity) throw new JenniferError('identity.not_configured', 'Passkeys need the durable database');
+    return opts.identity;
+  };
+  const requireSession = (req: FastifyRequest) => {
+    if (!req.session) throw new JenniferError('identity.session_required', 'Sign in with a passkey for this action');
+    return req.session;
   };
   const owner = { preHandler: auth('owner') };
   const anyone = { preHandler: auth('owner', 'developer', 'operator') };
@@ -95,8 +115,10 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
   app.post('/v1/actions/:id/approve', owner, async (req) => {
     const { id } = z.object({ id: z.string() }).parse(req.params);
-    const b = z.object({ revision: z.number().int(), payloadHash: z.string(), stepUpVerified: z.boolean().optional() }).parse(req.body);
-    const approval = j.actions.approve(id, j.ownerId, { revision: b.revision, payloadHash: b.payloadHash }, { stepUpVerified: b.stepUpVerified });
+    const b = z.object({ revision: z.number().int(), payloadHash: z.string() }).parse(req.body);
+    // Step-up comes only from a recent passkey assertion on this session, never from the request body.
+    const stepUpVerified = !!req.session && !!opts.identity?.hasRecentStepUp(req.session);
+    const approval = j.actions.approve(id, j.ownerId, { revision: b.revision, payloadHash: b.payloadHash }, { stepUpVerified });
     const result = await j.actions.execute(id);
     return { approvalId: approval.id, state: result.state, receipt: result.receipt, reason: result.stateReason };
   });
@@ -108,6 +130,34 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   app.post('/v1/actions/:id/cancel', owner, async (req) => {
     const { id } = z.object({ id: z.string() }).parse(req.params);
     return { canceled: j.actions.cancel(id, j.ownerId, 'canceled by Bruno') };
+  });
+
+  // ---- Identity: passkeys, step-up, devices ---------------------------------
+  const DeviceInfo = z.object({ platform: z.string().max(40), osVersion: z.string().max(40).optional(), label: z.string().max(80).optional() });
+  app.post('/v1/auth/passkeys/register/options', owner, async () => requireIdentity().registrationOptions(j.ownerId, j.ownerId));
+  app.post('/v1/auth/passkeys/register/verify', owner, async (req) => {
+    const b = z.object({ handle: z.string(), response: z.any(), device: DeviceInfo }).parse(req.body);
+    return requireIdentity().verifyRegistration(b.handle, b.response, b.device);
+  });
+  app.post('/v1/auth/passkeys/login/options', async () => requireIdentity().loginOptions(j.ownerId));
+  app.post('/v1/auth/passkeys/login/verify', async (req) => {
+    const b = z.object({ handle: z.string(), response: z.any() }).parse(req.body);
+    const { token, session } = await requireIdentity().verifyLogin(b.handle, b.response);
+    return { token, expiresAt: session.expiresAt };
+  });
+  app.post('/v1/auth/step-up/options', owner, async (req) => requireIdentity().stepUpOptions(requireSession(req)));
+  app.post('/v1/auth/step-up/verify', owner, async (req) => {
+    const b = z.object({ handle: z.string(), response: z.any() }).parse(req.body);
+    return { stepUpAt: await requireIdentity().verifyStepUp(requireSession(req), b.handle, b.response) };
+  });
+  app.post('/v1/auth/logout', owner, async (req) => {
+    await requireIdentity().logout(requireSession(req));
+    return { ok: true };
+  });
+  app.get('/v1/devices', owner, async () => requireIdentity().devices(j.ownerId));
+  app.delete('/v1/devices/:id', owner, async (req) => {
+    await requireIdentity().revokeDevice(j.ownerId, z.object({ id: z.string() }).parse(req.params).id, j.ownerId);
+    return { revoked: true };
   });
 
   // ---- Authority registry --------------------------------------------------

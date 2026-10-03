@@ -35,7 +35,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
 </style>
 </head>
 <body>
-<header><h1>Jennifer</h1><span id="status" class="muted" aria-live="polite"></span></header>
+<header><h1>Jennifer</h1><span><span id="status" class="muted" aria-live="polite"></span> <button class="btn" id="signin">Sign in with passkey</button></span></header>
 <nav aria-label="Sections">
   <button data-tab="today" aria-current="page">Today</button>
   <button data-tab="tasks">Tasks</button>
@@ -49,7 +49,33 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
 const $ = (s) => document.querySelector(s);
 let token = null;
 try { token = sessionStorage.getItem('jennifer_token'); } catch {}
-if (!token) { token = prompt('Owner API token'); try { sessionStorage.setItem('jennifer_token', token); } catch {} }
+const saveToken = (t) => { token = t; try { sessionStorage.setItem('jennifer_token', t); } catch {} };
+// WebAuthn helpers: the server speaks base64url JSON; the browser needs ArrayBuffers.
+const b64uToBuf = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0)).buffer;
+const bufToB64u = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).split('+').join('-').split('/').join('_').replace(/=+$/, '');
+const credJSON = (c) => ({ id: c.id, rawId: bufToB64u(c.rawId), type: c.type, clientExtensionResults: c.getClientExtensionResults(),
+  response: Object.fromEntries(['clientDataJSON', 'attestationObject', 'authenticatorData', 'signature', 'userHandle'].filter((k) => c.response[k]).map((k) => [k, bufToB64u(c.response[k])])) });
+async function passkeyGet(o) {
+  return credJSON(await navigator.credentials.get({ publicKey: { ...o, challenge: b64uToBuf(o.challenge), allowCredentials: (o.allowCredentials || []).map((c) => ({ ...c, id: b64uToBuf(c.id) })) } }));
+}
+async function passkeyCreate(o) {
+  return credJSON(await navigator.credentials.create({ publicKey: { ...o, challenge: b64uToBuf(o.challenge), user: { ...o.user, id: b64uToBuf(o.user.id) }, excludeCredentials: (o.excludeCredentials || []).map((c) => ({ ...c, id: b64uToBuf(c.id) })) } }));
+}
+async function signIn() {
+  const o = await fetch('/v1/auth/passkeys/login/options', { method: 'POST' }).then((r) => r.json());
+  if (!o.handle) { const t = prompt('No passkey yet. Enter the bootstrap owner token to register this device:'); if (t) { saveToken(t); await registerDevice(); } return; }
+  const r = await fetch('/v1/auth/passkeys/login/verify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ handle: o.handle, response: await passkeyGet(o.options) }) }).then((r) => r.json());
+  if (r.token) { saveToken(r.token); show('today'); }
+}
+async function registerDevice() {
+  const o = await api('/v1/auth/passkeys/register/options', { method: 'POST', body: '{}' });
+  await api('/v1/auth/passkeys/register/verify', { method: 'POST', body: JSON.stringify({ handle: o.handle, response: await passkeyCreate(o.options), device: { platform: navigator.platform || 'web', label: 'Browser' } }) });
+  await signIn();
+}
+async function stepUp() {
+  const o = await api('/v1/auth/step-up/options', { method: 'POST', body: '{}' });
+  await api('/v1/auth/step-up/verify', { method: 'POST', body: JSON.stringify({ handle: o.handle, response: await passkeyGet(o.options) }) });
+}
 const api = async (path, opts = {}) => {
   const r = await fetch(path, { ...opts, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token, ...(opts.headers || {}) } });
   const body = await r.json().catch(() => ({}));
@@ -97,7 +123,10 @@ async function show(tab) {
 document.addEventListener('click', async (e) => {
   const t = e.target;
   if (t.dataset.tab) return show(t.dataset.tab);
-  if (t.dataset.approve) { const r = await api('/v1/actions/' + t.dataset.approve + '/approve', { method: 'POST', body: JSON.stringify({ revision: +t.dataset.rev, payloadHash: t.dataset.hash }) }); $('#status').textContent = 'Result: ' + r.state; return show('today'); }
+  if (t.id === 'signin') return signIn().catch((err) => { $('#status').textContent = 'Sign-in failed: ' + err.message; });
+  if (t.dataset.approve) { const go = () => api('/v1/actions/' + t.dataset.approve + '/approve', { method: 'POST', body: JSON.stringify({ revision: +t.dataset.rev, payloadHash: t.dataset.hash }) });
+    let r; try { r = await go(); } catch (err) { if (!/second-factor/.test(err.message)) throw err; await stepUp(); r = await go(); }
+    $('#status').textContent = 'Result: ' + r.state; return show('today'); }
   if (t.dataset.cancel) { await api('/v1/actions/' + t.dataset.cancel + '/cancel', { method: 'POST', body: '{}' }); return show('today'); }
   if (t.dataset.ctl) { await api('/v1/controls/' + t.dataset.ctl, { method: 'POST', body: '{}' }); return show('settings'); }
 });
@@ -106,7 +135,7 @@ document.addEventListener('change', async (e) => {
   const res = await api('/v1/memory?q=' + encodeURIComponent(e.target.value));
   $('#mres').innerHTML = res.map(r => \`<div class="card">\${esc(r.entry.value)}<div class="muted">\${esc(r.freshness)} · source \${esc(r.sourceRef)}</div></div>\`).join('') || '<p class="muted">No matching memory.</p>';
 });
-show('today');
+if (token) show('today'); else $('#view').innerHTML = '<p class="muted">Sign in with your passkey to continue.</p>';
 </script>
 </body>
 </html>`;

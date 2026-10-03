@@ -4,14 +4,15 @@ Legend: ✅ implemented and tested in this repo · 🟡 domain logic done; real 
 
 | Week | Deliverable | Status | Notes |
 |---|---|---|---|
-| 1 | Device and account inventory | 🔒 | Needs Bruno: phone model/OS, carrier, numbers, email providers, social accounts, existing browser-assistant repo |
-| 1 | Capability matrix | 🟡 | `src/connectors/capabilities.ts` seeds the matrix with honest statuses. Nothing is `verified` until tested on real accounts |
-| 1 | Operating contract / authority schema | ✅ | `src/policy/authority.ts`, `authority_rule` table |
-| 1 | Repos and environments | 🟡 | Single repo, CI, `.env.example`. IaC and separate staging/prod credentials still to do |
-| 2 | Identity, vault, migrations | 🟡 | Bearer roles + schema with RLS. Still needed: passkeys, device auth, managed vault integration |
-| 2 | Contact model, event store, audit | ✅ | Dedup on `(account, provider_event_id)`, append-only redacted audit |
-| 2 | Authenticated dashboard | ✅ | `GET /` (minimal). Production client is React Native (week 7+) |
-| 2 | Synthetic replay without duplicate actions | ✅ | Tests: duplicate webhook → one reply; Scenario F |
+| 1 | Device and account inventory | ✅ / 🔒 | `config/inventory.json`: iPhone 17 Pro Max on AT&T recorded. Still needed from Bruno: iOS version, AT&T number(s), email/calendar/social accounts. Live list at `GET /v1/setup` |
+| 1 | Capability matrix | ✅ | Tailored to iOS + AT&T (`docs/SETUP_DESIGN.md`). Nothing is `verified` until tested on real accounts |
+| 1 | Operating contract / authority schema | ✅ | `docs/OPERATING_CONTRACT.md`, scoped templates in `src/policy/templates.ts` |
+| 1 | Inspect existing assistant code | ✅ | `docs/WORKFORCE_ASSESSMENT.md`: Jarvis and Jarvis-ML are empty; Bruno-AI-Workforce becomes an observe/draft connector |
+| 1 | Repos and environments | ✅ (not yet applied) | Terraform for staging and prod (Cloud Run, Cloud SQL + PITR, KMS, Secret Manager, keyless GitHub deploys), Dockerfile, manual deploy workflow. Needs a GCP project, then `terraform apply` |
+| 2 | Identity, vault, migrations | ✅ | Passkeys (WebAuthn, user verification), device-bound sessions, 5-minute step-up, device revocation; envelope-encrypted vault bound to account and environment (KMS in prod); checksummed migrations |
+| 2 | Contact model, event store, audit | ✅ | Postgres: unique-key dedup, leased claiming for multiple workers, durable audit, contacts, rules, action outbox; state rehydrates on boot |
+| 2 | Authenticated dashboard | ✅ | Passkey sign-in, step-up prompt on high-risk approvals. Production client is React Native (week 7+) |
+| 2 | Synthetic replay without duplicate actions | ✅ | Replay across a restart sends nothing twice; a crash mid-send recovers as `unknown` and is reconciled (`test/integration/durability.test.ts`) |
 | 3 | Primary email account: thread ingestion, drafts, payload review | 🟡 | Pipeline + fake provider done. Gmail API adapter (watch/history/renewal) to build; start Google OAuth verification **now** |
 | 4 | Calendar, timezones, attachments, reconciliation | 🟡 | Calendar domain + DST done. Still needed: Google Calendar adapter, attachment scanner, and scheduled reconciliation job |
 | 4 | Recipient-error prevention, suppression | ✅ | Scenarios C, D |
@@ -28,10 +29,10 @@ Legend: ✅ implemented and tested in this repo · 🟡 domain logic done; real 
 | 15 | Fine-tuning decision | ⬜ | Default: improve prompts and retrieval first |
 | 16 | Production release, runbooks, handover | ⬜ | Runbook outlines in `docs/RUNBOOKS.md` |
 
-## Immediate blockers that need Bruno
+## Needed from Bruno to start Week 3 (email)
 
-1. The account and device inventory: phone model and OS, App Store region, carrier, numbers, email providers, which social accounts are personal and which are business.
-2. The URL of the existing browser-assistant repository, for inspection.
-3. Standing instructions to activate first (for example, "routine scheduling replies to verified music contacts").
-4. Budget ceiling and a choice of telephony provider.
-5. Voice audition session: listen to three candidates.
+1. **Which email account is Jennifer's primary?** Your personal Gmail, or the Thrust insurance mailbox (Google Workspace)? Workforce already uses both.
+2. **Google Cloud project** for Jennifer (or reuse the Workforce project), so the OAuth client can be created and **Google's restricted-scope verification can start now**. It takes weeks.
+3. **iOS version** and your **AT&T number** (for the Week 8 forwarding plan).
+4. **Apple Developer Program** membership (needed by Week 7).
+5. Fix Workforce's unsigned carrier webhooks and plaintext secrets before connecting the two systems (`docs/WORKFORCE_ASSESSMENT.md`).

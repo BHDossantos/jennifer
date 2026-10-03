@@ -70,3 +70,12 @@ describe('API (§15)', () => {
     expect(h.j.actions.get(a.id).state).toBe('awaiting_decision');
   });
 });
+
+describe('dashboard', () => {
+  it('ships syntactically valid JavaScript', async () => {
+    const { DASHBOARD_HTML } = await import('../../src/api/dashboard.js');
+    const { Script } = await import('node:vm');
+    const js = DASHBOARD_HTML.split('<script>')[1]!.split('</script>')[0]!;
+    expect(() => new Script(js)).not.toThrow();
+  });
+});
