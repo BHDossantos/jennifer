@@ -48,6 +48,7 @@ const gmail = vault
       ownerId: j.ownerId,
       environment: env,
       onEmail: async (email) => void (await j.inbound.handle(email, { autoDraft: true })),
+      onHistory: async (email) => void (await j.inbound.handle(email, { autoDraft: false })),
       registerConnector: (c) => j.emailConnectors.set(c.id, c),
     })
   : undefined;

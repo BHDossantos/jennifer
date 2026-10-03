@@ -7,7 +7,7 @@ import type { CapabilityRegistry } from '../capabilities.js';
 import type { InboundEmail } from '../../assistant/inbound.js';
 import { GmailConnector } from './gmailConnector.js';
 import { GMAIL_IMAP, GMAIL_SMTP, ImapMailbox, MailAuthError, type MailCredentials, type MailServer } from './imap.js';
-import { MailboxWorker, PgCursorStore, type WorkerStatus } from './worker.js';
+import { MailboxWorker, PgCursorStore, toInbound, type WorkerStatus } from './worker.js';
 
 export interface GmailServiceDeps {
   db: Db;
@@ -19,6 +19,8 @@ export interface GmailServiceDeps {
   environment: string;
   /** Hand-off for new mail (InboundProcessor.handle). */
   onEmail: (email: InboundEmail) => Promise<void>;
+  /** Hand-off for imported history: stored for context, never drafted for. */
+  onHistory?: (email: InboundEmail) => Promise<void>;
   /** Register the send connector with the action pipeline. */
   registerConnector: (c: GmailConnector) => void;
   space?: Space;
@@ -105,6 +107,18 @@ export class GmailService {
   async syncNow(): Promise<number> {
     if (!this.worker) throw new JenniferError('gmail.not_connected', 'Gmail is not connected');
     return this.worker.syncOnce();
+  }
+
+  /** Import the last `days` of inbox history for context (missions, chat). Duplicates are ignored. */
+  async importHistory(days: number, actor: string): Promise<{ imported: number }> {
+    if (!this.address) throw new JenniferError('gmail.not_connected', 'Gmail is not connected');
+    const n = Math.min(Math.max(1, Math.floor(days)), 30);
+    const mailbox = new ImapMailbox(this.d.imap ?? GMAIL_IMAP, await this.creds());
+    const emails = await mailbox.history(n);
+    const handoff = this.d.onHistory ?? this.d.onEmail;
+    for (const e of emails) await handoff(toInbound(e, { accountId: this.accountId(this.address), connectorId: CONNECTOR, space: this.d.space ?? 'personal', clock: this.d.clock }));
+    this.d.audit.record(actor, 'connector.history_imported', this.accountId(this.address), { days: n, messages: emails.length });
+    return { imported: emails.length };
   }
 
   info() {

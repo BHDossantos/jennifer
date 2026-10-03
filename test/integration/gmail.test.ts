@@ -272,3 +272,18 @@ describe('GmailService (connect, resume, disconnect)', () => {
     await b.j.store.flush();
   });
 });
+
+describe('Gmail history import', () => {
+  it('imports recent inbox mail for context without drafting replies, and is idempotent', async () => {
+    const { f, j, mailbox } = await setup();
+    f.deliver(marcoMail('h1'));
+    f.deliver(marcoMail('h2', 'In-Reply-To: <h1@bianchi.test>\r\nReferences: <h1@bianchi.test>\r\n'));
+    const emails = await mailbox.history(7);
+    expect(emails.map((e) => e.parsed.messageId)).toEqual(expect.arrayContaining(['old1@x.test', 'h1@bianchi.test', 'h2@bianchi.test']));
+    for (const e of emails) await j.inbound.handle((await import('../../src/connectors/gmail/worker.js')).toInbound(e, { accountId: ADDRESS, connectorId: 'gmail', space: 'personal', clock: j.clock }), { autoDraft: false });
+    expect(j.actions.list()).toHaveLength(0); // no replies drafted for history
+    const before = j.conversations.listConversations('bruno').length;
+    for (const e of await mailbox.history(7)) await j.inbound.handle((await import('../../src/connectors/gmail/worker.js')).toInbound(e, { accountId: ADDRESS, connectorId: 'gmail', space: 'personal', clock: j.clock }));
+    expect(j.conversations.listConversations('bruno').length).toBe(before);
+  });
+});

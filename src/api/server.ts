@@ -322,6 +322,10 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     return { disconnected: true };
   });
   app.post('/v1/connectors/gmail/sync', owner, async () => ({ newMessages: await requireGmail().syncNow() }));
+  app.post('/v1/connectors/gmail/import', owner, async (req) => {
+    const b = z.object({ days: z.number().int().min(1).max(30).default(7) }).parse(req.body ?? {});
+    return requireGmail().importHistory(b.days, j.ownerId);
+  });
 
   // ---- Connectors: calendars -------------------------------------------------
   const requireCalendars = () => {

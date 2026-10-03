@@ -120,7 +120,7 @@ const views = {
       <p class="muted">Google Account → Security → 2-Step Verification → App passwords → create one named "Jennifer". Paste it here once; it is stored encrypted and never shown again.</p>
       <label>Gmail address <input id="gaddr" type="email" autocomplete="username" placeholder="you@gmail.com"></label>
       <label>App password <input id="gpass" type="password" autocomplete="off" placeholder="xxxx xxxx xxxx xxxx"></label>
-      <div class="row"><button class="btn primary" data-gmail="connect">Connect Gmail</button><button class="btn" data-gmail="sync">Check now</button><button class="btn danger" data-gmail="disconnect">Disconnect</button></div></div>\`;
+      <div class="row"><button class="btn primary" data-gmail="connect">Connect Gmail</button><button class="btn" data-gmail="sync">Check now</button><button class="btn" data-gmail="import">Import last 7 days</button><button class="btn danger" data-gmail="disconnect">Disconnect</button></div></div>\`;
     const cal = await api('/v1/connectors/calendar').catch(() => ({ calendars: [] }));
     const calCard = \`<div class="card"><strong>Calendars</strong> <span class="muted">\${esc(cal.calendars.map((c) => c.label + (c.writable ? '' : ' (read-only)')).join(', ') || 'none connected')}</span>
       <p class="muted"><b>iCloud</b> (read and write): appleid.apple.com → Sign-In and Security → App-Specific Passwords → generate "Jennifer".</p>

@@ -143,6 +143,37 @@ export class ImapMailbox {
     }
   }
 
+  /** Explicit history import: messages received in the last `days` (bounded). Does not move the cursor. */
+  async history(days: number, max = 500): Promise<SyncedEmail[]> {
+    const c = await this.open();
+    const lock = await c.getMailboxLock('INBOX');
+    try {
+      const since = new Date(Date.now() - days * 24 * 3600_000);
+      const uids = ((await c.search({ since }, { uid: true })) || []) as number[];
+      const pick = uids.slice(-max);
+      if (pick.length === 0) return [];
+      const uidValidity = String(c.mailbox ? c.mailbox.uidValidity : '0');
+      const out: SyncedEmail[] = [];
+      const query = { uid: true, envelope: true, size: true, internalDate: true, emailId: true, threadId: true, labels: true, source: true } as const;
+      for await (const m of c.fetch(pick.join(','), query, { uid: true }) as AsyncIterable<FetchMessageObject>) {
+        const raw = m.source && (m.size ?? 0) <= MAX_SOURCE_BYTES ? m.source : Buffer.from(`Subject: ${m.envelope?.subject ?? ''}\r\n\r\n[message too large to analyze]`);
+        const parsed = await parseRawEmail(raw);
+        out.push({
+          uid: m.uid,
+          providerMessageId: providerMessageId(parsed, m.emailId, `uid:${uidValidity}:${m.uid}`),
+          providerThreadId: threadKey(parsed, m.threadId),
+          parsed,
+          labels: [...(m.labels ?? [])],
+          internalDate: m.internalDate ? new Date(m.internalDate) : undefined,
+        });
+      }
+      return out;
+    } finally {
+      lock.release();
+      await c.logout().catch(() => {});
+    }
+  }
+
   /** Reconciliation: does the Sent folder contain our Message-ID? */
   async findSent(messageId: string): Promise<boolean> {
     const c = await this.open();
