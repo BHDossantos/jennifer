@@ -8,6 +8,7 @@ import { redactSecrets } from '../security/redaction.js';
 import { DASHBOARD_HTML } from './dashboard.js';
 import { MANIFEST, SERVICE_WORKER, appIcon } from './pwa.js';
 import { FEMALE_VOICE_CANDIDATES } from '../voice/realtime.js';
+import { MISSION_PRESETS, MissionInputSchema } from '../missions/missions.js';
 import { DEFAULT_VOICE, type VoiceSettings } from '../voice/persona.js';
 import type { IdentityService, Session } from '../identity/identity.js';
 import type { GmailService } from '../connectors/gmail/service.js';
@@ -171,7 +172,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
 
   // ---- Voice -----------------------------------------------------------------
-  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft'];
+  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft'];
   const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose']) };
   type StoredVoice = VoiceSettings & { mode: 'private' | 'business' };
   const voiceSettings = async (): Promise<StoredVoice> => ({ ...DEFAULT_VOICE, voiceId: 'marin', mode: 'private', ...(await j.settings.get<StoredVoice>('voice')) });
@@ -221,6 +222,37 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     } catch (e) {
       return { ok: false, error: e instanceof JenniferError ? e.message : 'Tool failed' };
     }
+  });
+
+  // ---- Missions (always-on agents) -------------------------------------------
+  app.get('/v1/missions', owner, async () => ({ missions: await j.missions.list(), presets: MISSION_PRESETS }));
+  app.post('/v1/missions', owner, async (req) => {
+    const b = z.object({ preset: z.string().optional() }).passthrough().parse(req.body ?? {});
+    const preset = b.preset ? MISSION_PRESETS.find((p) => p.id === b.preset) : undefined;
+    if (b.preset && !preset) throw new JenniferError('mission.unknown_preset', 'Unknown preset');
+    const { preset: _p, ...rest } = b;
+    const { id: _id, ...presetInput } = preset ?? ({} as Record<string, unknown>);
+    return j.missions.create(MissionInputSchema.parse({ ...presetInput, ...rest }), j.ownerId);
+  });
+  app.get('/v1/missions/:id', owner, async (req) => j.missions.get(z.object({ id: z.string() }).parse(req.params).id));
+  app.patch('/v1/missions/:id', owner, async (req) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    const patch = MissionInputSchema.partial().parse(req.body ?? {});
+    return j.missions.update(id, patch, j.ownerId);
+  });
+  for (const status of ['pause', 'resume', 'archive'] as const)
+    app.post(`/v1/missions/:id/${status}`, owner, async (req) =>
+      j.missions.setStatus(z.object({ id: z.string() }).parse(req.params).id, status === 'pause' ? 'paused' : status === 'resume' ? 'active' : 'archived', j.ownerId),
+    );
+  app.post('/v1/missions/:id/run', owner, async (req) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    const b = z.object({ mode: z.enum(['research', 'work']).default('work'), reason: z.string().max(500).default('Bruno asked') }).parse(req.body ?? {});
+    return j.missions.run(id, b.mode, b.reason);
+  });
+  app.post('/v1/missions/:id/results/:rid', owner, async (req) => {
+    const p = z.object({ id: z.string(), rid: z.string() }).parse(req.params);
+    const b = z.object({ status: z.enum(['reviewed', 'dismissed']) }).parse(req.body);
+    return j.missions.review(p.id, p.rid, b.status);
   });
 
   // ---- Connectors: Gmail ----------------------------------------------------

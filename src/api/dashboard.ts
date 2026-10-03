@@ -44,6 +44,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
 <header><h1>Jennifer</h1><span><span id="status" class="muted" aria-live="polite"></span> <button class="btn" id="signin">Sign in with passkey</button></span></header>
 <nav aria-label="Sections">
   <button data-tab="today" aria-current="page">Today</button>
+  <button data-tab="missions">Missions</button>
   <button data-tab="tasks">Tasks</button>
   <button data-tab="connections">Connections</button>
   <button data-tab="memory">Memory</button>
@@ -122,6 +123,28 @@ const views = {
   async memory() {
     return \`<div class="card"><label>Search memory <input id="mq" placeholder="e.g. travel in November"></label></div><div id="mres"></div>\`;
   },
+  async missions() {
+    const { missions, presets } = await api('/v1/missions');
+    const autonomyLabel = { act: 'acts on its own', act_if_preapproved: 'acts for pre-approved contacts', ask: 'asks you first', hand_over: 'hands it to you' };
+    const sched = (s) => s.kind === 'interval' ? 'every ' + s.minutes + ' min' : s.kind === 'daily' ? 'daily at ' + s.localTime : 'when you ask';
+    const cards = missions.filter((m) => m.status !== 'archived').map((m) => \`<div class="card"><strong>\${esc(m.title)}</strong> <span class="muted">· \${esc(m.status)} · \${esc(sched(m.schedule))}</span>
+      <div class="muted">\${esc(m.goal)}</div>
+      <div class="muted">Sending email: \${esc(autonomyLabel[(m.autonomy || {}).send_email || 'ask'])}</div>
+      \${(m.results || []).filter((r) => r.status === 'new').slice(0, 3).map((r) => \`<div class="card"><div class="muted">\${esc(new Date(r.at).toLocaleString())}</div><pre>\${esc(r.body)}</pre>
+        <div class="row"><button class="btn" data-mresult="\${m.id}|\${r.id}|reviewed">Got it</button><button class="btn" data-mresult="\${m.id}|\${r.id}|dismissed">Dismiss</button></div></div>\`).join('')}
+      <details><summary class="muted">Activity</summary>\${(m.activity || []).slice(-12).reverse().map((a) => '<div class="muted">' + esc(new Date(a.at).toLocaleTimeString()) + ' · ' + esc(a.text) + '</div>').join('')}</details>
+      <div class="row"><button class="btn primary" data-mission="\${m.id}|run">Run now</button>
+      \${m.status === 'active' ? \`<button class="btn" data-mission="\${m.id}|pause">Pause</button>\` : \`<button class="btn" data-mission="\${m.id}|resume">Resume</button>\`}
+      <button class="btn danger" data-mission="\${m.id}|archive">Remove</button></div></div>\`).join('') || '<p class="muted">No missions yet.</p>';
+    const presetButtons = presets.map((p) => \`<button class="btn" data-preset="\${p.id}">\${esc(p.title)}</button>\`).join('');
+    return \`<p class="muted">Missions keep working in the background. Background checks only read; anything they want to send follows the permission you set.</p>\${cards}
+      <div class="card"><strong>Start a mission</strong><div class="row">\${presetButtons}</div>
+      <label>Name <input id="mtitle" placeholder="e.g. Concert bookings"></label>
+      <label>Goal <input id="mgoal" placeholder="What should Jennifer keep working on?"></label>
+      <label>Check every <select id="msched"><option value="manual">only when I ask</option><option value="30">30 minutes</option><option value="60">hour</option><option value="240">4 hours</option></select></label>
+      <label>Sending email <select id="mauto"><option value="ask">ask me first</option><option value="hand_over">hand it to me</option><option value="act_if_preapproved">act for pre-approved contacts</option><option value="act">act on its own (verified contacts)</option></select></label>
+      <div class="row"><button class="btn primary" data-newmission="1">Create mission</button></div></div>\`;
+  },
   async voice() {
     const v = await api('/v1/voice');
     const s = v.settings;
@@ -165,6 +188,19 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (t.dataset.choose) { await api('/v1/voice/settings', { method: 'PUT', body: JSON.stringify({ voiceId: t.dataset.choose }) }); return show('voice'); }
+  if (t.dataset.preset) { await api('/v1/missions', { method: 'POST', body: JSON.stringify({ preset: t.dataset.preset }) }); return show('missions'); }
+  if (t.dataset.newmission) {
+    const sv = $('#msched').value;
+    await api('/v1/missions', { method: 'POST', body: JSON.stringify({ title: $('#mtitle').value, goal: $('#mgoal').value, schedule: sv === 'manual' ? { kind: 'manual' } : { kind: 'interval', minutes: Number(sv) }, autonomy: { send_email: $('#mauto').value } }) }).catch((err) => { $('#status').textContent = 'Mission: ' + err.message; });
+    return show('missions');
+  }
+  if (t.dataset.mission) {
+    const [id, op] = t.dataset.mission.split('|');
+    t.disabled = true; $('#status').textContent = op === 'run' ? 'Mission running…' : '';
+    try { await api('/v1/missions/' + id + '/' + op, { method: 'POST', body: '{}' }); $('#status').textContent = ''; } catch (err) { $('#status').textContent = 'Mission: ' + err.message; }
+    return show('missions');
+  }
+  if (t.dataset.mresult) { const [id, rid, st] = t.dataset.mresult.split('|'); await api('/v1/missions/' + id + '/results/' + rid, { method: 'POST', body: JSON.stringify({ status: st }) }); return show('missions'); }
   if (t.dataset.gmail) {
     const go = async () => {
       if (t.dataset.gmail === 'connect') return api('/v1/connectors/gmail/connect', { method: 'POST', body: JSON.stringify({ address: $('#gaddr').value, appPassword: $('#gpass').value }) });

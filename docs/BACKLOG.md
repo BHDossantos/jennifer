@@ -13,26 +13,30 @@ Legend: ✅ implemented and tested in this repo · 🟡 domain logic done; real 
 | 2 | Contact model, event store, audit | ✅ | Postgres: unique-key dedup, leased claiming for multiple workers, durable audit, contacts, rules, action outbox; state rehydrates on boot |
 | 2 | Authenticated dashboard | ✅ | Passkey sign-in, step-up prompt on high-risk approvals. Production client is React Native (week 7+) |
 | 2 | Synthetic replay without duplicate actions | ✅ | Replay across a restart sends nothing twice; a crash mid-send recovers as `unknown` and is reconciled (`test/integration/durability.test.ts`) |
-| 3 | Primary email account: thread ingestion, drafts, payload review | 🟡 | Pipeline + fake provider done. Gmail API adapter (watch/history/renewal) to build; start Google OAuth verification **now** |
+| 3 | Primary email account: thread ingestion, drafts, payload review | ✅ | Personal Gmail via IMAP IDLE + SMTP with an app password (no Google Cloud project). Sandbox mode, reconcile via Sent Mail, drafts to Gmail Drafts, reconnect handling. Needs Bruno's app password to go live |
 | 4 | Calendar, timezones, attachments, reconciliation | 🟡 | Calendar domain + DST done. Still needed: Google Calendar adapter, attachment scanner, and scheduled reconciliation job |
 | 4 | Recipient-error prevention, suppression | ✅ | Scenarios C, D |
 | 5 | Memory, import, correction, deletion | ✅ | Scenarios I, K. Import review screen UI pending |
 | 6 | Durable planning, authority checks, routine execution, cancel, daily summary | 🟡 | Logic done. Swap the interval worker for Temporal (or equivalent) |
-| 7 | Voice audition, realtime vs chained prototypes, mobile voice UI | ⬜ | Persona config and multilingual greetings ready. Needs voice candidates and Bruno's listening review |
+| 7 | Voice audition, realtime vs chained prototypes, mobile voice UI | ✅ (realtime) | Female voices Marin/Shimmer/Coral/Sage with auditions; realtime WebRTC with ephemeral keys; installable iPhone app with Talk button. Needs Bruno's listening review |
 | 8 | Test phone number, inbound calls, transfer | 🟡 | Call state machine done (Scenario H). Needs telephony provider, SIP → realtime gateway, and legal review |
 | 9 | Highest-priority messaging connector | 🔒 | Needs the account inventory. WhatsApp only for an eligible business number |
-| 10 | Specialist agents, budgets, context isolation | 🟡 | Coordinator done. Needs the LLM tool-use loop wired to `ToolRegistry` |
-| 11 | Proactive workflows, notifications, contact-specific behavior | 🟡 | Registry + scheduling done. Needs push notifications and quiet hours |
+| 10 | Specialist agents, budgets, context isolation | ✅ | Missions (dot-style always-on agents) with tool-calling loop, budgets, scoped tools, untrusted labeling |
+| 11 | Proactive workflows, notifications, contact-specific behavior | 🟡 | Missions scheduler (interval / Rome-time daily) and presets done. Needs push notifications and quiet hours |
 | 12 | Feedback capture, style adaptation, eval dashboards | 🟡 | Store + rule proposals + registry done. Needs the eval harness over 200 scenarios |
 | 13 | Security hardening, restore exercise | ⬜ | |
 | 14 | Controlled real use | 🔒 | |
 | 15 | Fine-tuning decision | ⬜ | Default: improve prompts and retrieval first |
 | 16 | Production release, runbooks, handover | ⬜ | Runbook outlines in `docs/RUNBOOKS.md` |
 
-## Needed from Bruno to start Week 3 (email)
+## Plan change (3 Oct 2026)
 
-1. **Which email account is Jennifer's primary?** Your personal Gmail, or the Thrust insurance mailbox (Google Workspace)? Workforce already uses both.
-2. **Google Cloud project** for Jennifer (or reuse the Workforce project), so the OAuth client can be created and **Google's restricted-scope verification can start now**. It takes weeks.
-3. **iOS version** and your **AT&T number** (for the Week 8 forwarding plan).
-4. **Apple Developer Program** membership (needed by Week 7).
-5. Fix Workforce's unsigned carrier webhooks and plaintext secrets before connecting the two systems (`docs/WORKFORCE_ASSESSMENT.md`).
+Bruno asked to build autonomously instead of following the weekly order. The priorities are Gmail, Jennifer's voice, the iPhone app and missions. Hosting moves to Render (`render.yaml`) because Bruno doesn't want a Google Cloud project. The Terraform files remain as an alternative.
+
+## Needed from Bruno
+
+1. **OpenAI API key** in the hosting environment (voice and missions).
+2. **Deploy** from `render.yaml`, then register a passkey on the iPhone.
+3. **Gmail app password** (Google Account → Security → App passwords).
+4. **Listen to the four voices** and choose.
+5. Later: AT&T number, for phone calls.

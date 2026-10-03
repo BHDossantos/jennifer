@@ -78,11 +78,15 @@ const timer = setInterval(() => {
     .catch((e) => app.log.error(e));
   j.memory.expireDue();
 }, 5000);
+// Mission scheduler: due background runs (read-only research) once a minute.
+const missionTimer = setInterval(() => void j.missions.tick().catch((e) => app.log.error(e)), 60_000);
+missionTimer.unref();
 timer.unref();
 
 async function shutdown(signal: string) {
   app.log.info(`${signal}: draining`);
   clearInterval(timer);
+  clearInterval(missionTimer);
   await app.close();
   await j.store.flush();
   await db!.close();

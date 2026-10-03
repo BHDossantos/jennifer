@@ -26,6 +26,9 @@ import { DateTime } from 'luxon';
 import type { Db } from './db/db.js';
 import { MemorySettings, PgSettings, type SettingsStore } from './core/settings.js';
 import { RealtimeVoiceService } from './voice/realtime.js';
+import { OpenAIToolModel, type ToolCallingModel } from './core/agentLoop.js';
+import { MemoryMissionStore, PgMissionStore, type MissionStore } from './missions/missions.js';
+import { MissionService } from './missions/runner.js';
 import { migrate } from './db/migrate.js';
 import { PgEventLog, PgStateStore, ensureOwner } from './db/pgStore.js';
 import { readFileSync, existsSync } from 'node:fs';
@@ -48,6 +51,8 @@ export interface JenniferOptions {
   settings?: SettingsStore;
   /** Inject a fetch for OpenAI calls (tests). */
   fetchImpl?: typeof fetch;
+  toolModel?: ToolCallingModel;
+  missionStore?: MissionStore;
 }
 
 /**
@@ -100,6 +105,37 @@ export function createJennifer(opts: JenniferOptions = {}) {
   registerStandardTools(tools, { ownerId, conversations, memory, calendar, actions, dailyBrief });
   const settings = opts.settings ?? new MemorySettings();
   const voice = new RealtimeVoiceService({ apiKey: config.openai.apiKey, baseUrl: config.openai.baseUrl, model: config.openai.realtimeModel, fetchImpl: opts.fetchImpl });
+  const toolModel = opts.toolModel ?? (config.openai.apiKey ? new OpenAIToolModel(config.openai.apiKey, config.openai.baseUrl, opts.fetchImpl) : undefined);
+  const missions = new MissionService({
+    clock,
+    ownerId,
+    store: opts.missionStore ?? new MemoryMissionStore(),
+    authority,
+    actions,
+    conversations,
+    tools,
+    audit,
+    model: toolModel,
+    modelName: config.openai.reasoningModel,
+    emailAccount: () => {
+      const g = capabilities.get('gmail');
+      return g?.connected && g.accountId ? { accountId: g.accountId, connectorId: 'gmail' } : undefined;
+    },
+  });
+  tools.register({
+    name: 'list_missions',
+    description: "Bruno's missions (always-on agents): status, latest unreviewed results and recent activity.",
+    input: z.object({}),
+    requiredScopes: ['brief:read'],
+    sideEffect: 'read',
+    timeoutMs: 3000,
+    rateLimitPerMinute: 30,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async () =>
+      (await missions.list())
+        .filter((m) => m.status !== 'archived')
+        .map((m) => ({ title: m.title, status: m.status, lastRunAt: m.lastRunAt, newResults: m.results.filter((r) => r.status === 'new').slice(0, 3).map((r) => r.body), recent: m.activity.slice(-5).map((a) => a.text) })),
+  });
 
   const inventoryPath = opts.inventoryPath === undefined ? 'config/inventory.json' : opts.inventoryPath;
   const inventory: Inventory | undefined = inventoryPath && existsSync(inventoryPath) ? InventorySchema.parse(JSON.parse(readFileSync(inventoryPath, 'utf8'))) : undefined;
@@ -132,6 +168,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     model,
     settings,
     voice,
+    missions,
     dailyBrief,
   };
 }
@@ -283,7 +320,7 @@ export async function createDurableJennifer(opts: JenniferOptions & { db: Db }) 
   const ownerId = opts.config?.ownerId ?? loadConfig({ ...process.env, JENNIFER_ENV: process.env.JENNIFER_ENV ?? 'development' }).ownerId;
   await ensureOwner(opts.db, ownerId);
   const store = new PgStateStore(opts.db, ownerId);
-  const j = createJennifer({ ...opts, clock, events: new PgEventLog(opts.db, clock), durability: store, settings: new PgSettings(opts.db, ownerId) });
+  const j = createJennifer({ ...opts, clock, events: new PgEventLog(opts.db, clock), durability: store, settings: new PgSettings(opts.db, ownerId), missionStore: new PgMissionStore(opts.db) });
 
   j.authority.restore(await store.loadRules());
   j.contacts.restore(await store.loadContacts());

@@ -2,7 +2,23 @@
 
 Bruno's persistent executive assistant: backend foundation, policy engine, durable action pipeline and local simulator, built from the *Jennifer Virtual Assistant Developer Specification* (v1, 30 Sep 2026).
 
-> **Status:** Weeks 1–2 of the spec's backlog are complete (inventory, operating contract, environments, identity, vault, Postgres persistence), with domain logic for later weeks, all running against a **local simulator**. Jennifer is **not** connected to any of Bruno's real accounts. Real connectors, the mobile app and the realtime voice gateway are adapters still to be built behind the interfaces here. See [`docs/BACKLOG.md`](docs/BACKLOG.md) for what is done and what remains.
+> **Status:** usable on Bruno's iPhone once deployed (see below). Built so far:
+> - **Gmail:** your personal inbox over IMAP push + SMTP with a Google app password. No Google Cloud project.
+> - **Voice:** a female realtime voice (Marin by default; audition Shimmer, Coral, Sage) with private and business personas.
+> - **Missions:** always-on agents similar to ChatGPT "dots".
+> - **App:** an installable home-screen app.
+> - **Foundation:** passkey sign-in, an encrypted vault, and a durable Postgres action pipeline.
+>
+> Calendar, phone calls and messaging connectors are next. See [`docs/BACKLOG.md`](docs/BACKLOG.md).
+
+## Put Jennifer on your iPhone
+
+1. **Deploy:** on [Render](https://render.com), New → Blueprint → this repo (`render.yaml`: HTTPS service + Postgres). Paste `OPENAI_API_KEY`. Optionally set `JENNIFER_EMAIL_SANDBOX` to your own address for the first days.
+2. **Register your passkey:** on the iPhone, open the service URL in Safari and tap **Sign in with passkey**. The first time it asks for the bootstrap token (Render → Environment → `JENNIFER_API_TOKEN`) and registers Face ID.
+3. **Install:** Share → **Add to Home Screen**. Jennifer now opens full-screen like an app.
+4. **Voice:** in the **Voice** tab, play the four voices and choose one. Tap **Talk** anywhere to speak with her.
+5. **Gmail:** Google Account → Security → 2-Step Verification → **App passwords** → create "Jennifer". In **Connections**, paste your address and the app password.
+6. **Missions:** in **Missions**, start "Inbox watch" or "Morning priorities", or write your own goal and choose what she may do alone.
 
 ## Core rule
 
@@ -21,13 +37,13 @@ Ambiguous provider results (timeouts) are **reconciled** before any retry. Nothi
 
 ```bash
 npm install
-npm test            # 63 tests incl. acceptance scenarios A–K and Postgres integration (PGlite)
+npm test            # 89 tests: acceptance A–K, Postgres, passkeys, Gmail (local IMAP/SMTP), voice, missions
 npm run typecheck
 npm run simulate    # end-to-end walkthrough against the fake inbox
 npm run dev         # API + dashboard on http://localhost:8787, durable (PGlite in .data/ or DATABASE_URL)
 ```
 
-Node ≥ 20. Copy `.env.example` to `.env` for configuration. In development, the server seeds simulated contacts, a calendar event, standing instructions and an inbound email.
+Node ≥ 20. Copy `.env.example` to `.env` for configuration. Set `JENNIFER_SEED=1` to load simulator demo data (never with a real inbox).
 
 ## Layout
 
@@ -51,6 +67,11 @@ Node ≥ 20. Copy `.env.example` to `.env` for configuration. In development, th
 | `src/api/` | §14, §15 | Fastify API with role-based bearer auth, signed webhooks, minimal dashboard |
 | `src/db/` | §3, §5 | Postgres port (node-postgres / PGlite), checksummed migrations, durable event log, outbox and audit |
 | `src/identity/` | §4 | Passkeys, device-bound sessions, step-up, device revocation; envelope-encrypted vault (KMS in production) |
+| `src/connectors/gmail/` | §6 | Gmail via IMAP IDLE + SMTP (app password): cursor sync, MIME parsing, threading, Sent-Mail reconciliation, drafts, worker |
+| `src/voice/realtime.ts` | §8 | Female voice candidates, auditions, ephemeral realtime sessions with persona and tools |
+| `src/missions/` | §12, §16 | Missions: always-on agents with goals, schedules, per-action autonomy, read-only background research, activity log, results |
+| `src/core/agentLoop.ts` | §12 | Bounded tool-calling loop (OpenAI Responses API) with budgets |
+| `src/api/pwa.ts` | §14 | Installable app shell: manifest, service worker (never caches API data), icons |
 | `src/setup/`, `config/inventory.json` | §2 | Device and account inventory and blockers (iPhone 17 Pro Max, AT&T) |
 | `db/migrations/` | §15 | PostgreSQL + pgvector schema for all required entities, with row-level security |
 | `deploy/terraform/`, `Dockerfile` | §3 | Staging and production on Cloud Run + Cloud SQL, KMS, Secret Manager, keyless deploys |
