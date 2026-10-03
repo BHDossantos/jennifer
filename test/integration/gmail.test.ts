@@ -262,7 +262,9 @@ describe('GmailService (connect, resume, disconnect)', () => {
     const b = await boot();
     expect(await b.svc.resume()).toBe(true);
     await waitFor(() => b.j.conversations.listConversations('bruno').some((c) => c.providerThreadId === 'mid:svc2@bianchi.test'));
-    expect(b.j.conversations.listConversations('bruno').some((c) => c.providerThreadId === 'mid:svc1@bianchi.test')).toBe(false); // not re-ingested
+    // svc1 survived the restart (persisted) but was not ingested a second time.
+    const svc1 = b.j.conversations.listConversations('bruno').find((c) => c.providerThreadId === 'mid:svc1@bianchi.test')!;
+    expect(b.j.conversations.messagesIn(svc1.id)).toHaveLength(1);
 
     await b.svc.disconnect('bruno');
     expect(b.j.capabilities.get('gmail')!.connected).toBe(false);
