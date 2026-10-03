@@ -13,7 +13,7 @@ import { personaInstructions, DEFAULT_VOICE, type DeliveryMode } from '../voice/
  * Bruno states are remembered only when the memory quotes his own words;
  * anything else (e.g. inspired by an email) waits for review.
  */
-const CHAT_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'get_calendar', 'find_free_slots', 'propose_event'];
+const CHAT_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'get_calendar', 'find_free_slots', 'propose_event', 'search_ai_history', 'read_ai_conversation'];
 const MAX_HISTORY = 40;
 
 interface ChatSession {
@@ -31,13 +31,13 @@ export class ChatService {
   ) {}
 
   async send(input: { sessionId?: string; message: string; mode?: DeliveryMode }): Promise<{ sessionId: string; reply: string; remembered: string[]; pendingReview: string[] }> {
-    if (!this.d.model) throw new JenniferError('chat.no_model', 'Chat needs OPENAI_API_KEY on the server');
+    if (!this.d.model) throw new JenniferError('chat.no_model', 'Chat needs OPENAI_API_KEY or ANTHROPIC_API_KEY on the server');
     const s = (input.sessionId && this.sessions.get(input.sessionId)) || { id: newId('chat'), history: [], lastUserText: '', updatedAt: this.d.clock.now() };
     s.lastUserText = input.message;
     const remembered: string[] = [];
     const pendingReview: string[] = [];
 
-    const ctx: ToolContext = { ownerId: this.d.ownerId, role: 'chat', allowedTools: new Set(CHAT_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose']) };
+    const ctx: ToolContext = { ownerId: this.d.ownerId, role: 'chat', allowedTools: new Set(CHAT_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read']) };
     const specs: ToolSpec[] = this.d.tools.forRole(ctx).map((t) => {
       const { $schema: _s, ...parameters } = t.schema as Record<string, unknown>;
       return { name: t.name, description: t.description, parameters };
@@ -60,6 +60,7 @@ export class ChatService {
         personaInstructions(input.mode ?? 'private', DEFAULT_VOICE, 'en'),
         'You are chatting by text with Bruno in the Jennifer app. Be concise; plain text, no markdown tables.',
         `Bruno's home time zone is ${this.d.homeTimeZone}. Current time: ${this.d.clock.now().toISOString()}.`,
+        'For anything Bruno discussed with ChatGPT or Claude, use search_ai_history; you only see what he exported or shared, so say so when it is not there.',
         'Use tools for facts about his day, inbox, missions and memory. Proposing or drafting a message never sends it: say it is waiting for his approval.',
         'When Bruno tells you something worth keeping (a preference, an instruction, a fact), call remember with his exact words as the quote.',
       ].join('\n'),

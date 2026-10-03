@@ -102,6 +102,9 @@ export class StopLoop extends Error {
   }
 }
 
+/** Raw items from another provider are replayed as plain items instead. */
+const ownRaw = (raw: unknown) => (raw && typeof raw === 'object' && (raw as { provider?: string }).provider === 'anthropic' ? undefined : raw);
+
 /** OpenAI Responses API with function tools; store:false, so history is resent each step. */
 export class OpenAIToolModel implements ToolCallingModel {
   constructor(
@@ -116,13 +119,13 @@ export class OpenAIToolModel implements ToolCallingModel {
         case 'user':
           return [{ role: 'user', content: i.text }];
         case 'tool_call':
-          return [i.raw ?? { type: 'function_call', call_id: i.callId, name: i.name, arguments: i.arguments }];
+          return [ownRaw(i.raw) ?? { type: 'function_call', call_id: i.callId, name: i.name, arguments: i.arguments }];
         case 'tool_result':
           return [{ type: 'function_call_output', call_id: i.callId, output: i.output }];
         case 'assistant':
-          return [i.raw ?? { role: 'assistant', content: i.text }];
+          return i.text || ownRaw(i.raw) ? [ownRaw(i.raw) ?? { role: 'assistant', content: i.text }] : [];
         case 'opaque':
-          return [i.raw];
+          return ownRaw(i.raw) ? [i.raw] : []; // another provider's private items (e.g. Claude thinking) are not portable
       }
     });
     const res = await this.fetchImpl(`${this.baseUrl}/responses`, {

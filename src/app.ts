@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { SPACES } from './core/types.js';
 import { type Clock, systemClock } from './core/util.js';
-import { type Config, loadConfig } from './core/config.js';
+import { type Config, loadConfig, textModel } from './core/config.js';
 import { type ModelProvider, OpenAIProvider, ScriptedModel } from './core/model.js';
 import { AuditLog } from './audit/audit.js';
 import { AuthorityRegistry } from './policy/authority.js';
@@ -27,6 +27,8 @@ import type { Db } from './db/db.js';
 import { MemorySettings, PgSettings, type SettingsStore } from './core/settings.js';
 import { RealtimeVoiceService } from './voice/realtime.js';
 import { OpenAIToolModel, type ToolCallingModel } from './core/agentLoop.js';
+import { AnthropicProvider, AnthropicToolModel } from './core/anthropic.js';
+import { AiHistoryService, MemoryAiHistoryStore, PgAiHistoryStore, type AiHistoryStore } from './memory/aiHistory.js';
 import { MemoryMissionStore, PgMissionStore, type MissionStore } from './missions/missions.js';
 import { MissionService } from './missions/runner.js';
 import { ChatService } from './assistant/chat.js';
@@ -56,6 +58,7 @@ export interface JenniferOptions {
   fetchImpl?: typeof fetch;
   toolModel?: ToolCallingModel;
   missionStore?: MissionStore;
+  aiHistoryStore?: AiHistoryStore;
   /** Where VAPID keys are kept (vault in production). */
   secrets?: SecretKV;
   pushSender?: PushSender;
@@ -98,10 +101,13 @@ export function createJennifer(opts: JenniferOptions = {}) {
   actions.register(new CalendarActionHandler('create_event', calendar, contacts, capabilities));
   actions.register(new CalendarActionHandler('modify_event', calendar, contacts, capabilities));
 
+  const brain = textModel(config);
   const model: ModelProvider =
     opts.model ??
-    (config.openai.apiKey
-      ? new OpenAIProvider(config.openai.apiKey, config.openai.baseUrl)
+    (brain.provider === 'anthropic'
+      ? new AnthropicProvider({ apiKey: config.anthropic.apiKey, effort: config.anthropic.effort })
+      : brain.provider === 'openai'
+      ? new OpenAIProvider(config.openai.apiKey!, config.openai.baseUrl)
       : new ScriptedModel(() => JSON.stringify({ reply: 'Thank you for your message. Bruno will review it.', cited_memory_ids: [], escalate: true, escalation_reason: 'no model configured' })));
 
   const inbound = new InboundProcessor({ clock, config, ownerId, events, conversations, contacts, actions, memory, suppressions, feedback, audit, model });
@@ -169,7 +175,13 @@ export function createJennifer(opts: JenniferOptions = {}) {
     quietly(notifications.notify({ kind: 'problem', title: 'Jennifer: something failed', body: 'An action could not be completed.', detail: `${d.kind}: ${d.error}`, url: '/?tab=today', dedupKey: `dlq:${d.subjectId}` })),
   );
 
-  const toolModel = opts.toolModel ?? (config.openai.apiKey ? new OpenAIToolModel(config.openai.apiKey, config.openai.baseUrl, opts.fetchImpl) : undefined);
+  const toolModel =
+    opts.toolModel ??
+    (brain.provider === 'anthropic'
+      ? new AnthropicToolModel({ apiKey: config.anthropic.apiKey, effort: config.anthropic.effort })
+      : brain.provider === 'openai'
+        ? new OpenAIToolModel(config.openai.apiKey!, config.openai.baseUrl, opts.fetchImpl)
+        : undefined);
   const missions = new MissionService({
     clock,
     ownerId,
@@ -180,7 +192,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     tools,
     audit,
     model: toolModel,
-    modelName: config.openai.reasoningModel,
+    modelName: brain.model,
     onResult: (m, r) => {
       if (/^Nothing to report/.test(r.body)) return;
       quietly(notifications.notify({ kind: 'mission', title: `Mission: ${m.title}`, body: 'New result to review.', detail: r.body.slice(0, 180), url: '/?tab=missions', dedupKey: `mission:${r.id}` }));
@@ -190,7 +202,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
       return g?.connected && g.accountId ? { accountId: g.accountId, connectorId: 'gmail' } : undefined;
     },
   });
-  const chat = new ChatService({ clock, ownerId, tools, memory, audit, model: toolModel, modelName: config.openai.reasoningModel, homeTimeZone: config.homeTimeZone });
+  const chat = new ChatService({ clock, ownerId, tools, memory, audit, model: toolModel, modelName: brain.model, homeTimeZone: config.homeTimeZone });
   const phone = new PhoneService({
     clock,
     ownerId,
@@ -207,6 +219,35 @@ export function createJennifer(opts: JenniferOptions = {}) {
     transferTarget: config.transferNumber,
     fetchImpl: opts.fetchImpl,
     openSideband: opts.openSideband,
+  });
+  const history = new AiHistoryService({ store: opts.aiHistoryStore ?? new MemoryAiHistoryStore(), clock, audit, memory, ownerId, model: opts.model ?? (brain.provider === 'none' ? undefined : model), modelName: brain.model, promptVersion: config.openai.promptVersion });
+  tools.register({
+    name: 'search_ai_history',
+    description: "Search Bruno's imported ChatGPT and Claude conversations and projects (only what he exported or shared). Returns excerpts with conversation ids.",
+    input: z.object({ query: z.string().min(2).max(200), source: z.enum(['chatgpt', 'claude', 'clip']).optional(), limit: z.number().int().min(1).max(20).default(8) }),
+    requiredScopes: ['history:read'],
+    sideEffect: 'read',
+    timeoutMs: 5000,
+    rateLimitPerMinute: 60,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i) => {
+      const hits = await history.search(i.query, { source: i.source, limit: i.limit });
+      return hits.length ? hits : { found: [], note: "Nothing in the ChatGPT/Claude history Bruno has imported matches. Don't guess what he discussed elsewhere." };
+    },
+  });
+  tools.register({
+    name: 'read_ai_conversation',
+    description: 'Read one imported ChatGPT/Claude conversation by id (from search_ai_history), newest messages last.',
+    input: z.object({ conversationId: z.string().max(200), maxMessages: z.number().int().min(1).max(200).default(60) }),
+    requiredScopes: ['history:read'],
+    sideEffect: 'read',
+    timeoutMs: 5000,
+    rateLimitPerMinute: 60,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i) => {
+      const { conversation, messages } = await history.conversation(i.conversationId);
+      return { title: conversation.title, source: conversation.source, project: conversation.project, messages: messages.slice(-i.maxMessages).map((m) => ({ role: m.role, at: m.createdAt, text: m.text.slice(0, 4000) })) };
+    },
   });
   registerCalendarTools(tools, { ownerId, calendar, actions, capabilities, clock, homeTimeZone: config.homeTimeZone });
   tools.register({
@@ -243,6 +284,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     capabilities,
     memory,
     importer,
+    history,
     agents,
     workflows,
     feedback,
@@ -410,7 +452,7 @@ export async function createDurableJennifer(opts: JenniferOptions & { db: Db }) 
   const ownerId = opts.config?.ownerId ?? loadConfig({ ...process.env, JENNIFER_ENV: process.env.JENNIFER_ENV ?? 'development' }).ownerId;
   await ensureOwner(opts.db, ownerId);
   const store = new PgStateStore(opts.db, ownerId);
-  const j = createJennifer({ ...opts, clock, events: new PgEventLog(opts.db, clock), durability: store, settings: new PgSettings(opts.db, ownerId), missionStore: new PgMissionStore(opts.db) });
+  const j = createJennifer({ ...opts, clock, events: new PgEventLog(opts.db, clock), durability: store, settings: new PgSettings(opts.db, ownerId), missionStore: new PgMissionStore(opts.db), aiHistoryStore: new PgAiHistoryStore(opts.db) });
 
   j.authority.restore(await store.loadRules());
   j.contacts.restore(await store.loadContacts());

@@ -117,7 +117,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   app.get('/v1/onboarding', owner, async () => {
     const cap = (id: string) => !!j.capabilities.get(id)?.connected;
     const steps = [
-      { id: 'openai', title: 'Server has an OpenAI API key (voice, chat, missions)', done: !!j.config.openai.apiKey },
+      { id: 'openai', title: 'Server has an OpenAI API key (voice and phone; also chat and missions unless Claude is chosen)', done: !!j.config.openai.apiKey },
       { id: 'passkey', title: 'Sign in with Face ID (passkey) on your iPhone', done: opts.identity ? await opts.identity.hasPasskey(j.ownerId) : false },
       { id: 'voice', title: "Choose Jennifer's voice", done: !!(await j.settings.get('voice')), tab: 'voice' },
       { id: 'gmail', title: 'Connect your Gmail (app password)', done: cap('gmail'), tab: 'connections' },
@@ -209,8 +209,8 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
 
   // ---- Voice -----------------------------------------------------------------
-  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft'];
-  const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose']) };
+  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'search_ai_history'];
+  const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read']) };
   type StoredVoice = VoiceSettings & { mode: 'private' | 'business' };
   const voiceSettings = async (): Promise<StoredVoice> => ({ ...DEFAULT_VOICE, voiceId: 'marin', mode: 'private', ...(await j.settings.get<StoredVoice>('voice')) });
   const Lang = z.enum(['en', 'pt-BR', 'es', 'it']);
@@ -434,9 +434,48 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     return { deleted: true };
   });
   app.get('/v1/memory/reviews', owner, async () => j.memory.openReviews());
+  // ---- ChatGPT / Claude history (explicit exports and shared clips) ---------
+  /** Legacy: raw ChatGPT conversations.json text. */
   app.post('/v1/memory/import/chatgpt', owner, async (req) => {
-    const b = z.object({ export: z.string(), conversationIds: z.array(z.string()).optional() }).parse(req.body);
-    return j.importer.importExport(j.ownerId, b.export, b.conversationIds);
+    const b = z.object({ export: z.string() }).parse(req.body);
+    return j.history.importExport({ json: b.export }, j.ownerId);
+  });
+  /** Upload the export as downloaded: the .zip (base64) or conversations.json (+ Claude projects.json). */
+  app.post('/v1/history/import', { ...owner, bodyLimit: 300 * 1024 * 1024 }, async (req) => {
+    const b = z.object({ zipBase64: z.string().max(400 * 1024 * 1024).optional(), json: z.string().optional(), projectsJson: z.string().optional() }).refine((x) => x.zipBase64 || x.json, 'zipBase64 or json is required').parse(req.body);
+    return j.history.importExport(b, j.ownerId);
+  });
+  /** The .zip as raw bytes (what the dashboard sends). Large ChatGPT zips with images: unzip in Files and upload conversations.json. */
+  app.addContentTypeParser(['application/zip', 'application/octet-stream'], { parseAs: 'buffer', bodyLimit: 200 * 1024 * 1024 }, (_req, body, done) => done(null, body));
+  app.post('/v1/history/import-zip', { ...owner, bodyLimit: 200 * 1024 * 1024 }, async (req) => {
+    if (!Buffer.isBuffer(req.body)) throw new JenniferError('history.bad_zip', 'Send the .zip file as application/zip');
+    return j.history.importExport({ zip: req.body as Buffer }, j.ownerId);
+  });
+  /** "Send to Jennifer" from the ChatGPT/Claude share sheet (iOS Shortcut) or a paste. */
+  app.post('/v1/history/clip', owner, async (req) => {
+    const b = z.object({ text: z.string().min(1).max(500_000), title: z.string().max(200).optional(), from: z.enum(['chatgpt', 'claude', 'other']).optional(), url: z.string().url().max(2000).optional() }).parse(req.body);
+    return j.history.clip(b, j.ownerId);
+  });
+  app.get('/v1/history/search', owner, async (req) => {
+    const q = z.object({ q: z.string().min(2).max(200), source: z.enum(['chatgpt', 'claude', 'clip']).optional() }).parse(req.query);
+    return j.history.search(q.q, { source: q.source, limit: 30 });
+  });
+  app.get('/v1/history/conversations', owner, async (req) => {
+    const q = z.object({ source: z.enum(['chatgpt', 'claude', 'clip']).optional(), project: z.string().optional(), limit: z.coerce.number().int().min(1).max(200).default(50), offset: z.coerce.number().int().min(0).default(0) }).parse(req.query);
+    return j.history.conversations(q);
+  });
+  app.get('/v1/history/conversations/:id', owner, async (req) => j.history.conversation(z.object({ id: z.string() }).parse(req.params).id));
+  app.post('/v1/history/conversations/:id/suggest-memories', owner, async (req) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    const b = z.object({ space: z.enum(SPACES).default('personal') }).parse(req.body ?? {});
+    const proposed = await j.history.proposeMemories(id, b.space, j.ownerId);
+    return { proposed: proposed.length, pendingReview: proposed.map((m) => ({ id: m.id, value: m.value, kind: m.kind })) };
+  });
+  app.get('/v1/history/projects', owner, async () => j.history.projects());
+  app.get('/v1/history/imports', owner, async () => j.history.imports());
+  app.delete('/v1/history/imports/:id', owner, async (req) => {
+    await j.history.deleteImport(z.object({ id: z.string() }).parse(req.params).id, j.ownerId);
+    return { deleted: true };
   });
 
   // ---- Audit ---------------------------------------------------------------

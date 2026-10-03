@@ -28,6 +28,19 @@ Bruno's persistent executive assistant: backend foundation, policy engine, durab
    - **Webhook:** in the OpenAI dashboard → Webhooks, add `https://<your Jennifer URL>/v1/webhooks/openai` for `realtime.call.incoming`. Put its secret in `OPENAI_WEBHOOK_SECRET`.
    - **Transfers:** optionally set `JENNIFER_TRANSFER_NUMBER` to your own number.
    - **AT&T forwarding:** after a test call works, dial `**61*<Jennifer's number>#` on your iPhone so unanswered calls reach her. `##61#` turns it off.
+10. **Your ChatGPT and Claude history:** see below.
+
+## ChatGPT and Claude: what Jennifer can and cannot see
+
+Jennifer does **not** log in to your ChatGPT or Claude accounts, and an API key does not give access to your chat history (API keys only run new requests). Reusing your passwords or browser cookies would break both services' terms and the spec's security rule (§11), and a stolen session would expose everything. Instead:
+
+- **Everything at once:** export your data and upload it in **Memory → ChatGPT & Claude history**.
+  - ChatGPT: Settings → Data controls → **Export data** (email with a .zip).
+  - Claude: Settings → Privacy → **Export data** (includes **projects**: names, instructions and documents).
+  - Upload the .zip, or, if ChatGPT's .zip is very large because of images, unzip it in the Files app and upload just `conversations.json`. Re-uploading a newer export adds only new messages.
+- **One chat at a time ("Send to Jennifer"):** paste it in Memory, or make an iOS Shortcut: *Receive text from Share Sheet → Get contents of URL* `https://<your Jennifer URL>/v1/history/clip`, method POST, header `Authorization: Bearer <a session token>`, JSON body `{"text": Shortcut Input, "from": "chatgpt"}`. Then Share → Jennifer from either app.
+- **What she does with it:** search it when you ask ("what did Claude and I decide about the agency plan?"), use it in missions (source "AI history"), and suggest memories from **your own** messages. Suggestions wait for your OK; assistant replies are never treated as facts about you. Remove an import any time.
+- **Claude as her brain:** set `ANTHROPIC_API_KEY` (and `MODEL_PROVIDER=anthropic` to prefer it). Chat, missions, drafts and the brief then run on Claude Opus 5.5; voice and phone calls stay on OpenAI Realtime. Claude requests opt into Anthropic's server-side refusal fallback (`fallbacks: "default"`), which can re-run a declined request on another Claude model.
 
 ## Core rule
 

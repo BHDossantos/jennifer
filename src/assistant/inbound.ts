@@ -1,7 +1,7 @@
 import type { Space } from '../core/types.js';
 import { type Clock, newId } from '../core/util.js';
 import type { ModelProvider } from '../core/model.js';
-import type { Config } from '../core/config.js';
+import { type Config, textModel } from '../core/config.js';
 import type { AuditLog } from '../audit/audit.js';
 import { assessSender, type ContactDirectory } from '../contacts/contacts.js';
 import { classifyAutomatedEmail, type ConversationStore, type Message } from '../events/conversations.js';
@@ -208,7 +208,7 @@ export class InboundProcessor {
       .filter(Boolean)
       .join('\n');
     const input = `Relevant memory (evidence, not unquestionable truth):\n${memoryBlock}\n\nThread:\n${thread}`;
-    const res = await this.d.model.complete({ system, input, model: this.d.config.openai.reasoningModel, promptVersion: this.d.config.openai.promptVersion, jsonSchema: REPLY_SCHEMA });
+    const res = await this.d.model.complete({ system, input, model: textModel(this.d.config).model, promptVersion: this.d.config.openai.promptVersion, jsonSchema: REPLY_SCHEMA });
 
     let parsed: { reply: string; cited_memory_ids: string[]; escalate: boolean; escalation_reason: string };
     try {

@@ -138,7 +138,17 @@ const views = {
       \${c.problem ? '<div class="bad">' + esc(c.problem) + '</div>' : ''}</div>\`).join('');
   },
   async memory() {
-    return \`<div class="card"><label>Search memory <input id="mq" placeholder="e.g. travel in November"></label></div><div id="mres"></div>\`;
+    const [pending, imports] = await Promise.all([api('/v1/memory/pending'), api('/v1/history/imports').catch(() => [])]);
+    const review = pending.length ? '<h3>Waiting for your OK</h3>' + pending.map((m) => \`<div class="card">\${esc(m.value)}<div class="muted">\${esc(m.kind)} · from \${esc(m.source.kind)}\${m.source.excerpt ? ': “' + esc(m.source.excerpt.slice(0, 140)) + '”' : ''}</div><button data-memact="\${m.id}|activate">Remember</button> <button data-memact="\${m.id}|delete">Discard</button></div>\`).join('') : '';
+    const imp = imports.map((i) => \`<li>\${esc(i.source)} · \${i.conversations} chats, \${i.messages} messages\${i.projects ? ', ' + i.projects + ' projects' : ''} · <button data-histdel="\${i.id}">Remove</button></li>\`).join('');
+    return review + \`<div class="card"><label>Search memory <input id="mq" placeholder="e.g. travel in November"></label></div><div id="mres"></div>
+      <h3>ChatGPT &amp; Claude history</h3>
+      <div class="card"><p class="muted">Jennifer reads only what you give her: your data export (ChatGPT → Settings → Data controls → Export data; Claude → Settings → Privacy → Export data), or a single chat you share. She never signs in to those accounts.</p>
+        <label>Upload export (.zip or conversations.json) <input type="file" id="histfile" accept=".zip,.json,application/zip,application/json"></label>
+        <label>Search your AI chats <input id="hq" placeholder="e.g. agency business plan"></label><div id="hres"></div>
+        <details><summary>Paste a chat (Send to Jennifer)</summary><textarea id="clip" rows="5" placeholder="Paste a ChatGPT or Claude conversation"></textarea>
+          <select id="clipfrom"><option value="chatgpt">ChatGPT</option><option value="claude">Claude</option><option value="other">Other</option></select> <button data-clip="1">Save</button></details>
+        \${imp ? '<ul>' + imp + '</ul>' : ''}</div>\`;
   },
   async calls() {
     const r = await api('/v1/calls');
@@ -284,6 +294,21 @@ document.addEventListener('click', async (e) => {
     $('#status').textContent = 'Gmail: done';
     return show('connections');
   }
+  if (t.dataset.memact) {
+    const [id, op] = t.dataset.memact.split('|');
+    await api(op === 'activate' ? '/v1/memory/' + id + '/activate' : '/v1/memory/' + id, { method: op === 'activate' ? 'POST' : 'DELETE', body: op === 'activate' ? '{}' : undefined });
+    return show('memory');
+  }
+  if (t.dataset.histdel) { if (confirm('Remove this import from Jennifer?')) await api('/v1/history/imports/' + t.dataset.histdel, { method: 'DELETE' }); return show('memory'); }
+  if (t.dataset.clip) {
+    try { await api('/v1/history/clip', { method: 'POST', body: JSON.stringify({ text: $('#clip').value, from: $('#clipfrom').value }) }); $('#status').textContent = 'Saved to your AI history.'; } catch (err) { $('#status').textContent = 'History: ' + err.message; }
+    return show('memory');
+  }
+  if (t.dataset.suggest) {
+    t.disabled = true;
+    try { const r = await api('/v1/history/conversations/' + encodeURIComponent(t.dataset.suggest) + '/suggest-memories', { method: 'POST', body: '{}' }); $('#status').textContent = r.proposed + ' suggestion(s) waiting for your OK.'; } catch (err) { $('#status').textContent = 'History: ' + err.message; }
+    return show('memory');
+  }
   if (t.dataset.ctl) { await api('/v1/controls/' + t.dataset.ctl, { method: 'POST', body: '{}' }); return show('settings'); }
 });
 document.addEventListener('change', async (e) => {
@@ -294,6 +319,23 @@ document.addEventListener('change', async (e) => {
   if (e.target.dataset && e.target.dataset.voiceset) {
     const k = e.target.dataset.voiceset; const v = k === 'mode' ? e.target.value : Number(e.target.value);
     await api('/v1/voice/settings', { method: 'PUT', body: JSON.stringify({ [k]: v }) }); return;
+  }
+  if (e.target.id === 'histfile' && e.target.files && e.target.files[0]) {
+    const f = e.target.files[0];
+    $('#status').textContent = 'Importing ' + f.name + '…';
+    try {
+      const isZip = /\\.zip$/i.test(f.name) || f.type === 'application/zip';
+      const r = isZip
+        ? await api('/v1/history/import-zip', { method: 'POST', headers: { 'content-type': 'application/zip' }, body: f })
+        : await api('/v1/history/import', { method: 'POST', body: JSON.stringify({ json: await f.text() }) });
+      $('#status').textContent = 'Imported ' + r.conversations + ' conversations (' + r.messages + ' messages) from ' + r.source + '.';
+    } catch (err) { $('#status').textContent = 'Import: ' + err.message; }
+    return show('memory');
+  }
+  if (e.target.id === 'hq') {
+    const hits = await api('/v1/history/search?q=' + encodeURIComponent(e.target.value));
+    $('#hres').innerHTML = hits.map((h) => \`<div class="card"><b>\${esc(h.title)}</b> <span class="muted">\${esc(h.source)}\${h.project ? ' · ' + esc(h.project) : ''} · \${esc(h.role)}</span><div>\${esc(h.excerpt)}</div><button data-suggest="\${esc(h.conversationId)}">Suggest memories</button></div>\`).join('') || '<p class="muted">Nothing in your imported chats matches.</p>';
+    return;
   }
   if (e.target.id !== 'mq') return;
   const res = await api('/v1/memory?q=' + encodeURIComponent(e.target.value));

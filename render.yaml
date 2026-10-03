@@ -23,6 +23,10 @@ services:
         generateValue: true
       - key: OPENAI_API_KEY
         sync: false                  # paste in the Render dashboard
+      - key: ANTHROPIC_API_KEY       # optional: Claude as Jennifer's brain (console.anthropic.com → API keys)
+        sync: false
+      - key: MODEL_PROVIDER          # auto | openai | anthropic (auto = OpenAI when its key is set)
+        value: auto
       - key: JENNIFER_EMAIL_SANDBOX  # optional: only these recipients until you remove it
         sync: false
       - key: OPENAI_WEBHOOK_SECRET   # phone calls: from OpenAI dashboard → Webhooks (realtime.call.incoming)

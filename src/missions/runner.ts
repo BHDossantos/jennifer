@@ -135,7 +135,7 @@ export class MissionService {
   }
 
   async run(id: string, mode: RunMode, reason: string): Promise<Mission> {
-    if (!this.d.model) throw new JenniferError('mission.no_model', 'Missions need OPENAI_API_KEY on the server');
+    if (!this.d.model) throw new JenniferError('mission.no_model', 'Missions need OPENAI_API_KEY or ANTHROPIC_API_KEY on the server');
     if (this.running.has(id)) throw new JenniferError('mission.busy', 'This mission is already running');
     let m = await this.get(id);
     if (m.status !== 'active') throw new JenniferError('mission.inactive', `Mission is ${m.status}`);
@@ -218,7 +218,7 @@ export class MissionService {
 
   /** Tools for this mission run: read tools by source; proposal tools only in work mode. */
   private toolbox(m: Mission, mode: RunMode, since: Date, proposed: string[], sources: Set<string>) {
-    const readCtx = { ownerId: this.d.ownerId, role: `mission:${m.id}`, allowedTools: new Set<string>(), scopes: new Set(['messages:read', 'memory:read', 'brief:read', 'actions:read', 'calendar:read']) };
+    const readCtx = { ownerId: this.d.ownerId, role: `mission:${m.id}`, allowedTools: new Set<string>(), scopes: new Set<string>(['messages:read', 'memory:read', 'brief:read', 'actions:read', 'calendar:read']) };
     const specs: ToolSpec[] = [];
     const handlers = new Map<string, (args: any) => Promise<unknown>>();
     const fromRegistry = (name: string) => {
@@ -254,6 +254,11 @@ export class MissionService {
     if (m.sources.includes('calendar')) {
       fromRegistry('get_calendar');
       fromRegistry('find_free_slots');
+    }
+    if (m.sources.includes('ai_history')) {
+      readCtx.scopes.add('history:read');
+      fromRegistry('search_ai_history');
+      fromRegistry('read_ai_conversation');
     }
     if (m.sources.includes('brief')) {
       fromRegistry('get_today_brief');
