@@ -324,11 +324,15 @@ export async function createDurableJennifer(opts: JenniferOptions & { db: Db }) 
 
   j.authority.restore(await store.loadRules());
   j.contacts.restore(await store.loadContacts());
+  j.conversations.restore(await store.loadConversations());
+  j.memory.restore(await store.loadMemory());
   const { intents, approvals } = await store.loadActions();
   j.actions.restore(intents, approvals);
 
   j.audit.addSink((ev) => store.audit(ev));
   j.authority.onChange((_v, ruleId) => store.rule(j.authority.get(ruleId)));
   j.contacts.onChange((c) => store.contact(c));
+  j.conversations.onChange((e) => store.conversationChange(e));
+  j.memory.onChange((e) => store.memoryChange(e));
   return Object.assign(j, { db: opts.db, store });
 }

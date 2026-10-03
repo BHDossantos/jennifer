@@ -126,3 +126,34 @@ describe('Week 2 — durable foundation (Postgres via PGlite)', () => {
     await db.close();
   });
 });
+
+describe('conversations and memory survive restarts', () => {
+  it('a reply drafted before a restart can be approved and sent after it, in-thread', async () => {
+    const db = await pgliteDb();
+    const gmail = new FakeEmailProvider('gmail');
+    const j1 = await boot(db, gmail);
+    await seed(j1);
+    j1.authority.revoke(j1.authority.list()[0]!.id, 'bruno'); // make replies wait for approval
+    const out = await j1.inbound.handle(email('keep-1'), { autoDraft: true });
+    const mem = j1.memory.add({ ownerId: 'bruno', kind: 'preference', space: 'music', value: 'Bruno prefers afternoon sessions', source: { kind: 'bruno_statement', ref: 'note:1', excerpt: 'afternoons', assertedBy: 'bruno' }, confidence: 'confirmed', sensitivity: 'normal', retention: 'indefinite' });
+    const gone = j1.memory.add({ ownerId: 'bruno', kind: 'preference', space: 'music', value: 'Old preference to forget', source: { kind: 'bruno_statement', ref: 'note:2', excerpt: 'x', assertedBy: 'bruno' }, confidence: 'confirmed', sensitivity: 'normal', retention: 'indefinite' });
+    j1.memory.delete(gone.id, 'bruno');
+    await j1.store.flush();
+
+    const j2 = await boot(db, gmail);
+    const conv = j2.conversations.getConversation(out.message!.conversationId);
+    expect(j2.conversations.messagesIn(conv.id)).toHaveLength(1);
+    expect(j2.memory.retrieve({ ownerId: 'bruno', text: 'afternoon sessions', spaces: ['music'], maxSensitivity: 'normal' })[0]!.entry.id).toBe(mem.id);
+    expect(() => j2.memory.add({ ownerId: 'bruno', kind: 'preference', space: 'music', value: 'Old preference to forget', source: { kind: 'bruno_statement', ref: 'import', excerpt: '', assertedBy: 'bruno' }, confidence: 'reported', sensitivity: 'normal', retention: 'indefinite' })).toThrow(/deleted/);
+
+    const a = j2.actions.get(out.proposedActionId!);
+    expect(a.state).toBe('awaiting_decision');
+    j2.actions.approve(a.id, 'bruno', { revision: a.revision, payloadHash: a.payloadHash });
+    await j2.actions.execute(a.id);
+    expect(j2.actions.get(a.id).state).toBe('provider_accepted');
+    expect(gmail.sent).toHaveLength(1);
+    expect(j2.conversations.messagesIn(conv.id)).toHaveLength(2); // outbound recorded in the thread
+    await j2.store.flush();
+    await db.close();
+  });
+});

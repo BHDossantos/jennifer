@@ -57,8 +57,25 @@ export class ConversationStore {
   private conversations = new Map<string, Conversation>();
   private messages = new Map<string, Message>();
   private attachments = new Map<string, Attachment>();
+  private listeners: Array<(e: { conversation?: Conversation; message?: Message; attachment?: Attachment }) => void> = [];
 
   constructor(private clock: Clock) {}
+
+  /** Durable sinks receive every change (conversation, message, attachment). */
+  onChange(fn: (e: { conversation?: Conversation; message?: Message; attachment?: Attachment }) => void): void {
+    this.listeners.push(fn);
+  }
+
+  private emit(e: { conversation?: Conversation; message?: Message; attachment?: Attachment }): void {
+    for (const l of this.listeners) l(e);
+  }
+
+  /** Rehydrate after restart. */
+  restore(data: { conversations: Conversation[]; messages: Message[]; attachments: Attachment[] }): void {
+    for (const c of data.conversations) this.conversations.set(c.id, c);
+    for (const m of data.messages) this.messages.set(m.id, m);
+    for (const a of data.attachments) this.attachments.set(a.id, a);
+  }
 
   upsertConversation(input: Omit<Conversation, 'id' | 'messageIds' | 'revision'> & { id?: string }): Conversation {
     if (input.providerThreadId) {
@@ -69,6 +86,7 @@ export class ConversationStore {
     }
     const c: Conversation = { ...input, id: input.id ?? newId('conv'), messageIds: [], revision: 0 };
     this.conversations.set(c.id, c);
+    this.emit({ conversation: c });
     return c;
   }
 
@@ -92,6 +110,7 @@ export class ConversationStore {
     this.messages.set(m.id, m);
     conv.messageIds.push(m.id);
     if (m.direction === 'inbound') conv.revision++;
+    this.emit({ message: m, conversation: conv });
     return m;
   }
 
@@ -122,6 +141,7 @@ export class ConversationStore {
   addAttachment(input: Omit<Attachment, 'id'>): Attachment {
     const a: Attachment = { ...input, id: newId('att') };
     this.attachments.set(a.id, a);
+    this.emit({ attachment: a });
     return a;
   }
 

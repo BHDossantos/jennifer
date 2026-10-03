@@ -5,6 +5,8 @@ import type { ActionIntent, Approval } from '../actions/model.js';
 import type { ActionDurability } from '../actions/service.js';
 import type { AuthorityRule } from '../policy/authority.js';
 import type { Contact } from '../contacts/contacts.js';
+import type { Attachment, Conversation, Message } from '../events/conversations.js';
+import type { MemoryChange, MemoryEntry, ReviewItem } from '../memory/memory.js';
 import { type Clock, newId } from '../core/util.js';
 
 export async function ensureOwner(db: Db, ownerId: string, displayName = ownerId): Promise<void> {
@@ -203,6 +205,79 @@ export class PgStateStore implements ActionDurability {
           );
       });
     });
+  }
+
+  conversationChange(e: { conversation?: Conversation; message?: Message; attachment?: Attachment }): void {
+    const conv = e.conversation ? structuredClone(e.conversation) : undefined;
+    const msg = e.message ? structuredClone(e.message) : undefined;
+    const att = e.attachment ? structuredClone(e.attachment) : undefined;
+    this.q.push(async () => {
+      if (conv)
+        await this.db.query(
+          `INSERT INTO conversation_doc (id, owner_id, data, updated_at) VALUES ($1,$2,$3,now()) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
+          [conv.id, conv.ownerId, JSON.stringify(conv)],
+        );
+      if (msg)
+        await this.db.query(`INSERT INTO message_doc (id, owner_id, conversation_id, occurred_at, data) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`, [
+          msg.id,
+          msg.ownerId,
+          msg.conversationId,
+          msg.occurredAt,
+          JSON.stringify(msg),
+        ]);
+      if (att) await this.db.query(`INSERT INTO attachment_doc (id, owner_id, data) VALUES ($1,$2,$3) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`, [att.id, att.ownerId, JSON.stringify(att)]);
+    });
+  }
+
+  memoryChange(e: MemoryChange): void {
+    const snap = structuredClone(e);
+    this.q.push(async () => {
+      if (snap.kind === 'entry')
+        await this.db.query(
+          `INSERT INTO memory_doc (id, owner_id, status, data, updated_at) VALUES ($1,$2,$3,$4,now()) ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, data = EXCLUDED.data, updated_at = now()`,
+          [snap.entry.id, snap.entry.ownerId, snap.entry.status, JSON.stringify(snap.entry)],
+        );
+      else if (snap.kind === 'deleted')
+        await this.db.transaction(async (tx) => {
+          // Deletion removes the entry (and with it any embedding) and records the ledger fingerprint.
+          await tx.query('DELETE FROM memory_doc WHERE id = $1', [snap.id]);
+          await tx.query('INSERT INTO memory_deletion_ledger (owner_id, fingerprint, source_ref, deleted_at) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [
+            snap.ownerId,
+            snap.fingerprint,
+            snap.sourceRef,
+            snap.at,
+          ]);
+        });
+      else
+        await this.db.query(`INSERT INTO memory_review_doc (id, owner_id, data) VALUES ($1,$2,$3) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`, [
+          snap.review.id,
+          this.ownerId,
+          JSON.stringify(snap.review),
+        ]);
+    });
+  }
+
+  async loadConversations(): Promise<{ conversations: Conversation[]; messages: Message[]; attachments: Attachment[] }> {
+    const c = await this.db.query<{ data: Conversation }>('SELECT data FROM conversation_doc WHERE owner_id = $1', [this.ownerId]);
+    const m = await this.db.query<{ data: Message }>('SELECT data FROM message_doc WHERE owner_id = $1 ORDER BY occurred_at', [this.ownerId]);
+    const a = await this.db.query<{ data: Attachment }>('SELECT data FROM attachment_doc WHERE owner_id = $1', [this.ownerId]);
+    return {
+      conversations: c.rows.map((r) => r.data),
+      messages: m.rows.map((r) => ({ ...r.data, occurredAt: new Date(r.data.occurredAt) })),
+      attachments: a.rows.map((r) => r.data),
+    };
+  }
+
+  async loadMemory(): Promise<{ entries: MemoryEntry[]; ledger: Array<{ fingerprint: string; deletedAt: Date; sourceRef: string }>; reviews: ReviewItem[] }> {
+    const d = (v: unknown) => (v ? new Date(v as string) : undefined);
+    const e = await this.db.query<{ data: MemoryEntry }>('SELECT data FROM memory_doc WHERE owner_id = $1', [this.ownerId]);
+    const l = await this.db.query<Row>('SELECT fingerprint, source_ref, deleted_at FROM memory_deletion_ledger WHERE owner_id = $1', [this.ownerId]);
+    const r = await this.db.query<{ data: ReviewItem }>('SELECT data FROM memory_review_doc WHERE owner_id = $1', [this.ownerId]);
+    return {
+      entries: e.rows.map(({ data: x }) => ({ ...x, createdAt: new Date(x.createdAt), effectiveFrom: new Date(x.effectiveFrom), effectiveUntil: d(x.effectiveUntil), lastVerifiedAt: d(x.lastVerifiedAt) })),
+      ledger: l.rows.map((x) => ({ fingerprint: x.fingerprint, sourceRef: x.source_ref, deletedAt: new Date(x.deleted_at) })),
+      reviews: r.rows.map(({ data: x }) => ({ ...x, resolvedAt: d(x.resolvedAt) })),
+    };
   }
 
   // ---- Rehydration ---------------------------------------------------------

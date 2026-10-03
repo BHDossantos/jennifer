@@ -49,6 +49,11 @@ export interface ReviewItem {
   resolvedAt?: Date;
 }
 
+export type MemoryChange =
+  | { kind: 'entry'; entry: MemoryEntry }
+  | { kind: 'deleted'; id: string; ownerId: string; fingerprint: string; sourceRef: string; at: Date }
+  | { kind: 'review'; review: ReviewItem };
+
 export interface RetrievalQuery {
   ownerId: string;
   text: string;
@@ -87,6 +92,25 @@ export class MemoryStore {
   private vectors = new Map<string, number[]>();
   private deletionLedger = new Map<string, { deletedAt: Date; sourceRef: string }>();
   private reviews = new Map<string, ReviewItem>();
+  private listeners: Array<(e: MemoryChange) => void> = [];
+
+  onChange(fn: (e: MemoryChange) => void): void {
+    this.listeners.push(fn);
+  }
+
+  private emit(e: MemoryChange): void {
+    for (const l of this.listeners) l(e);
+  }
+
+  /** Rehydrate after restart; embeddings are recomputed for active entries. */
+  restore(data: { entries: MemoryEntry[]; ledger: Array<{ fingerprint: string; deletedAt: Date; sourceRef: string }>; reviews: ReviewItem[] }): void {
+    for (const e of data.entries) {
+      this.entries.set(e.id, e);
+      if (e.status !== 'pending_review') this.vectors.set(e.id, this.embedder.embed(`${e.key ?? ''} ${e.value}`));
+    }
+    for (const l of data.ledger) this.deletionLedger.set(l.fingerprint, { deletedAt: l.deletedAt, sourceRef: l.sourceRef });
+    for (const r of data.reviews) this.reviews.set(r.id, r);
+  }
 
   constructor(
     private clock: Clock,
@@ -124,6 +148,9 @@ export class MemoryStore {
     }
     this.entries.set(entry.id, entry);
     if (entry.status !== 'pending_review') this.vectors.set(entry.id, this.embedder.embed(`${entry.key ?? ''} ${entry.value}`));
+    if (entry.supersedes) this.emit({ kind: 'entry', entry: this.entries.get(entry.supersedes)! });
+    for (const r of this.openReviews()) if (r.entryIds.includes(entry.id)) for (const id of r.entryIds) if (id !== entry.id) this.emit({ kind: 'entry', entry: this.entries.get(id)! });
+    this.emit({ kind: 'entry', entry });
     return entry;
   }
 
@@ -144,6 +171,7 @@ export class MemoryStore {
     if (e.status === 'pending_review') {
       e.status = 'active';
       this.vectors.set(e.id, this.embedder.embed(`${e.key ?? ''} ${e.value}`));
+      this.emit({ kind: 'entry', entry: e });
     }
     return e;
   }
@@ -170,15 +198,18 @@ export class MemoryStore {
     const e = this.get(id);
     e.lastVerifiedAt = this.clock.now();
     if (e.confidence !== 'unresolved') e.confidence = 'confirmed';
+    this.emit({ kind: 'entry', entry: e });
   }
 
   /** Delete: entry, embedding, and a ledger fingerprint so old imports cannot reinsert it. */
   delete(id: string, actor: string): void {
     const e = this.get(id);
     if (actor !== e.ownerId) throw new JenniferError('memory.not_owner', 'Only the owner can delete memory');
-    this.deletionLedger.set(e.fingerprint, { deletedAt: this.clock.now(), sourceRef: e.source.ref });
+    const at = this.clock.now();
+    this.deletionLedger.set(e.fingerprint, { deletedAt: at, sourceRef: e.source.ref });
     this.entries.delete(id);
     this.vectors.delete(id);
+    this.emit({ kind: 'deleted', id, ownerId: e.ownerId, fingerprint: e.fingerprint, sourceRef: e.source.ref, at });
   }
 
   isDeleted(ownerId: string, key: string | undefined, value: string): boolean {
@@ -226,6 +257,7 @@ export class MemoryStore {
       if (e.status === 'active' && e.effectiveUntil && e.effectiveUntil.getTime() <= now) {
         e.status = 'expired';
         expired.push(e.id);
+        this.emit({ kind: 'entry', entry: e });
       }
     }
     return expired;
@@ -262,11 +294,17 @@ export class MemoryStore {
       }
     }
     r.resolvedAt = this.clock.now();
+    for (const id of r.entryIds) {
+      const e = this.entries.get(id);
+      if (e) this.emit({ kind: 'entry', entry: e });
+    }
+    this.emit({ kind: 'review', review: r });
     void actor;
   }
 
   private openReview(kind: ReviewItem['kind'], entryIds: string[], message: string): void {
     const r: ReviewItem = { id: newId('rev'), kind, entryIds, message };
     this.reviews.set(r.id, r);
+    this.emit({ kind: 'review', review: r });
   }
 }
