@@ -44,6 +44,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
 <header><h1>Jennifer</h1><span><span id="status" class="muted" aria-live="polite"></span> <button class="btn" id="signin">Sign in with passkey</button></span></header>
 <nav aria-label="Sections">
   <button data-tab="today" aria-current="page">Today</button>
+  <button data-tab="ask">Ask</button>
   <button data-tab="missions">Missions</button>
   <button data-tab="tasks">Tasks</button>
   <button data-tab="connections">Connections</button>
@@ -123,6 +124,12 @@ const views = {
   async memory() {
     return \`<div class="card"><label>Search memory <input id="mq" placeholder="e.g. travel in November"></label></div><div id="mres"></div>\`;
   },
+  async ask() {
+    const bubbles = chatLog.map((m) => \`<div class="card" style="\${m.who === 'you' ? 'margin-left:15%' : 'margin-right:15%'}"><div class="muted">\${m.who === 'you' ? 'You' : 'Jennifer'}</div><div style="white-space:pre-wrap">\${esc(m.text)}</div></div>\`).join('');
+    return \`\${bubbles || '<p class="muted">Ask about your day, your inbox or your missions, or tell Jennifer something to remember.</p>'}
+      <div class="card"><label>Message <input id="chatin" placeholder="e.g. What needs my attention today?" autocomplete="off"></label>
+      <div class="row"><button class="btn primary" data-chat="send">Send</button><button class="btn" data-chat="new">New conversation</button></div></div>\`;
+  },
   async missions() {
     const { missions, presets } = await api('/v1/missions');
     const autonomyLabel = { act: 'acts on its own', act_if_preapproved: 'acts for pre-approved contacts', ask: 'asks you first', hand_over: 'hands it to you' };
@@ -188,6 +195,22 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (t.dataset.choose) { await api('/v1/voice/settings', { method: 'PUT', body: JSON.stringify({ voiceId: t.dataset.choose }) }); return show('voice'); }
+  if (t.dataset.chat === 'new') { chatSession = null; chatLog = []; return show('ask'); }
+  if (t.dataset.chat === 'send') {
+    const text = $('#chatin').value.trim(); if (!text) return;
+    chatLog.push({ who: 'you', text }); await show('ask');
+    $('#status').textContent = 'Jennifer is thinking…';
+    try {
+      const r = await api('/v1/chat', { method: 'POST', body: JSON.stringify({ sessionId: chatSession || undefined, message: text }) });
+      chatSession = r.sessionId;
+      let reply = r.reply;
+      if (r.remembered.length) reply += '\\n\\n(Remembered: ' + r.remembered.join('; ') + ')';
+      if (r.pendingReview.length) reply += '\\n\\n(Waiting for your review before I remember: ' + r.pendingReview.join('; ') + ')';
+      chatLog.push({ who: 'jennifer', text: reply });
+      $('#status').textContent = '';
+    } catch (err) { $('#status').textContent = 'Chat: ' + err.message; }
+    return show('ask');
+  }
   if (t.dataset.preset) { await api('/v1/missions', { method: 'POST', body: JSON.stringify({ preset: t.dataset.preset }) }); return show('missions'); }
   if (t.dataset.newmission) {
     const sv = $('#msched').value;
@@ -223,6 +246,9 @@ document.addEventListener('change', async (e) => {
 });
 // ---- Live voice: WebRTC straight to the realtime model with an ephemeral key; tools run on our server.
 let rtc = null;
+let chatSession = null;
+let chatLog = [];
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'chatin') { e.preventDefault(); document.querySelector('[data-chat=send]').click(); } });
 const voiceLang = () => { const l = (navigator.language || 'en').toLowerCase(); return l.startsWith('pt') ? 'pt-BR' : l.startsWith('es') ? 'es' : l.startsWith('it') ? 'it' : 'en'; };
 const setVoice = (state) => { const b = $('#voice'); b.dataset.state = state; b.textContent = { offline: 'Talk', connecting: '…', listening: 'Listening', thinking: 'Thinking', acting: 'Working', speaking: 'Speaking', muted: 'Muted' }[state] || state; b.setAttribute('aria-label', 'Jennifer: ' + state + '. Tap to ' + (state === 'offline' ? 'talk' : 'hang up')); };
 async function startVoice() {

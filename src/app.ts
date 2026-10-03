@@ -29,6 +29,7 @@ import { RealtimeVoiceService } from './voice/realtime.js';
 import { OpenAIToolModel, type ToolCallingModel } from './core/agentLoop.js';
 import { MemoryMissionStore, PgMissionStore, type MissionStore } from './missions/missions.js';
 import { MissionService } from './missions/runner.js';
+import { ChatService } from './assistant/chat.js';
 import { migrate } from './db/migrate.js';
 import { PgEventLog, PgStateStore, ensureOwner } from './db/pgStore.js';
 import { readFileSync, existsSync } from 'node:fs';
@@ -122,6 +123,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
       return g?.connected && g.accountId ? { accountId: g.accountId, connectorId: 'gmail' } : undefined;
     },
   });
+  const chat = new ChatService({ clock, ownerId, tools, memory, audit, model: toolModel, modelName: config.openai.reasoningModel, homeTimeZone: config.homeTimeZone });
   tools.register({
     name: 'list_missions',
     description: "Bruno's missions (always-on agents): status, latest unreviewed results and recent activity.",
@@ -169,6 +171,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     settings,
     voice,
     missions,
+    chat,
     dailyBrief,
   };
 }

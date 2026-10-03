@@ -224,6 +224,14 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     }
   });
 
+  // ---- Chat ("Ask Jennifer") -------------------------------------------------
+  app.post('/v1/chat', owner, async (req) => {
+    const b = z.object({ sessionId: z.string().optional(), message: z.string().min(1).max(4000), mode: z.enum(['private', 'business']).optional() }).parse(req.body);
+    return j.chat.send(b);
+  });
+  app.get('/v1/memory/pending', owner, async () => j.memory.all(j.ownerId).filter((m) => m.status === 'pending_review'));
+  app.post('/v1/memory/:id/activate', owner, async (req) => j.memory.activate(z.object({ id: z.string() }).parse(req.params).id));
+
   // ---- Missions (always-on agents) -------------------------------------------
   app.get('/v1/missions', owner, async () => ({ missions: await j.missions.list(), presets: MISSION_PRESETS }));
   app.post('/v1/missions', owner, async (req) => {

@@ -38,6 +38,7 @@ export interface LoopResult {
   toolCalls: number;
   stoppedBy: 'final' | 'max_steps' | 'max_tool_calls' | 'budget' | 'canceled';
   usage: { inputTokens: number; outputTokens: number };
+  history?: AgentItem[];
 }
 
 /**
@@ -54,8 +55,10 @@ export async function runAgentLoop(o: {
   limits: LoopLimits;
   exec: (name: string, args: unknown) => Promise<string>;
   onStep?: (usage: { inputTokens: number; outputTokens: number }) => void;
+  /** Earlier turns of a conversation (chat). */
+  prior?: AgentItem[];
 }): Promise<LoopResult> {
-  const history: AgentItem[] = [{ type: 'user', text: o.task }];
+  const history: AgentItem[] = [...(o.prior ?? []), { type: 'user', text: o.task }];
   const usage = { inputTokens: 0, outputTokens: 0 };
   let toolCalls = 0;
   for (let step = 1; step <= o.limits.maxSteps; step++) {
@@ -69,7 +72,7 @@ export async function runAgentLoop(o: {
     const calls = r.items.filter((i): i is Extract<AgentItem, { type: 'tool_call' }> => i.type === 'tool_call');
     if (calls.length === 0) {
       const text = r.items.filter((i): i is Extract<AgentItem, { type: 'assistant' }> => i.type === 'assistant').map((i) => i.text).join('\n').trim();
-      return { finalText: text, steps: step, toolCalls, stoppedBy: 'final', usage };
+      return { finalText: text, steps: step, toolCalls, stoppedBy: 'final', usage, history };
     }
     for (const c of calls) {
       if (toolCalls >= o.limits.maxToolCalls) return { finalText: '', steps: step, toolCalls, stoppedBy: 'max_tool_calls', usage };
