@@ -65,6 +65,8 @@ Node ≥ 20. Copy `.env.example` to `.env` for configuration. In development, th
 
 ## Security
 
+- Third-party material (adapted from OpenJarvis, Apache-2.0) is listed in `THIRD_PARTY_LICENSES`.
+
 - Refresh tokens belong in a managed vault (`account_connection.vault_secret_ref`). They never go into prompts, logs or clients.
 - Audit details and model-provider errors pass through `redactSecrets`.
 - Sign-in uses passkeys with user verification. Sessions are device-bound, stored as hashes and last 12 h. High-risk approvals need a passkey step-up within the last 5 minutes. Revoking a device kills its sessions and passkeys. The static `JENNIFER_API_TOKEN` is a bootstrap/break-glass path and can never satisfy step-up.

@@ -44,6 +44,11 @@
       "repo": "BHDossantos/Jarvis-ML",
       "assessment": "Empty repository",
       "reuse": "none"
+    },
+    {
+      "repo": "open-jarvis/OpenJarvis",
+      "assessment": "See docs/OPENJARVIS_ASSESSMENT.md",
+      "reuse": "Reference + small ports (injection/credential patterns, brief grounding rules). Not run as a service: model self-approves actions."
     }
   ],
   "businesses": [

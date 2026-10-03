@@ -17,6 +17,14 @@ const INJECTION_PATTERNS: Array<[string, RegExp]> = [
   ['credential_request', /\b(send|share|provide|tell|give)\b[^.]{0,40}\b(password|verification code|2fa|otp|one[- ]time code|authentication code|security code|login code)\b/i],
   ['settings_change', /\b(change|update|disable|turn off)\b[^.]{0,40}\b(settings|permissions|forwarding|rules|security|2fa)\b/i],
   ['role_play', /\b(you are now|act as|new system prompt|developer mode)\b|\b(system|assistant)\s*:/i],
+  // Patterns below adapted from OpenJarvis security/injection_scanner.py (Apache-2.0); see THIRD_PARTY_LICENSES.
+  ['identity_override', /\byou\s+are\s+now\s+(?:a\s+)?(?:different|new|my)\b/i],
+  ['code_injection', /\b(?:execute|run|eval)\s*\(\s*['"]/i],
+  ['shell_injection', /(?:;|\||&&)\s*(?:rm|curl|wget|nc|ncat|bash|sh|python|perl)\s/],
+  ['exfiltration_url', /\b(?:send|post|upload|exfiltrate|transmit)\s+(?:(?:to|data|all|everything)\s+)*(?:to\s+)?(?:https?:\/\/|my\s+server)/i],
+  ['encoded_exfiltration', /\bbase64\s+encode\s+(?:and\s+)?(?:send|include|append)/i],
+  ['jailbreak', /\b(?:DAN|do\s+anything\s+now)\s+(?:mode|prompt|jailbreak)|\bpretend\s+(?:you\s+)?(?:have\s+)?no\s+(?:restrictions?|limitations?|rules?|filters?)/i],
+  ['delimiter_injection', /```(?:system|assistant)\b|<\|(?:im_start|im_end|system|assistant)\|>/i],
   ['hidden_text', /[\u200B-\u200F\u2060\uFEFF]|<span[^>]*(display:\s*none|font-size:\s*0)/i],
 ];
 

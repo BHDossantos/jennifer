@@ -7,7 +7,7 @@ Legend: ✅ implemented and tested in this repo · 🟡 domain logic done; real 
 | 1 | Device and account inventory | ✅ / 🔒 | `config/inventory.json`: iPhone 17 Pro Max on AT&T recorded. Still needed from Bruno: iOS version, AT&T number(s), email/calendar/social accounts. Live list at `GET /v1/setup` |
 | 1 | Capability matrix | ✅ | Tailored to iOS + AT&T (`docs/SETUP_DESIGN.md`). Nothing is `verified` until tested on real accounts |
 | 1 | Operating contract / authority schema | ✅ | `docs/OPERATING_CONTRACT.md`, scoped templates in `src/policy/templates.ts` |
-| 1 | Inspect existing assistant code | ✅ | `docs/WORKFORCE_ASSESSMENT.md`: Jarvis and Jarvis-ML are empty; Bruno-AI-Workforce becomes an observe/draft connector |
+| 1 | Inspect existing assistant code | ✅ | `docs/WORKFORCE_ASSESSMENT.md`: Jarvis and Jarvis-ML are empty; Bruno-AI-Workforce becomes an observe/draft connector. `docs/OPENJARVIS_ASSESSMENT.md`: OpenJarvis used as a reference; security patterns and brief rules ported |
 | 1 | Repos and environments | ✅ (not yet applied) | Terraform for staging and prod (Cloud Run, Cloud SQL + PITR, KMS, Secret Manager, keyless GitHub deploys), Dockerfile, manual deploy workflow. Needs a GCP project, then `terraform apply` |
 | 2 | Identity, vault, migrations | ✅ | Passkeys (WebAuthn, user verification), device-bound sessions, 5-minute step-up, device revocation; envelope-encrypted vault bound to account and environment (KMS in prod); checksummed migrations |
 | 2 | Contact model, event store, audit | ✅ | Postgres: unique-key dedup, leased claiming for multiple workers, durable audit, contacts, rules, action outbox; state rehydrates on boot |
