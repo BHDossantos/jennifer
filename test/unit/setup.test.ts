@@ -31,9 +31,11 @@ describe('Week 1 — inventory and operating contract', () => {
   it('the capability screen is honest about iPhone messaging', () => {
     const h = makeHarness();
     const imessage = h.j.capabilities.screen().find((c) => c.id === 'imessage')!;
+    // Not set up: nothing is monitored and the screen says what is missing (the Mac relay).
+    expect(imessage.connected).toBe(false);
     expect(imessage.canMonitor).toBe(false);
-    expect(imessage.unavailable).toEqual(expect.arrayContaining(['read', 'send']));
-    expect(imessage.problem).toMatch(/no access to the Messages inbox/);
+    expect(imessage.actions).toEqual([]);
+    expect(imessage.problem).toMatch(/BlueBubbles Server on your Mac/);
     expect(h.j.capabilities.get('telephony')!.reconnectProcedure).toMatch(/\*\*61\*/);
   });
 });
