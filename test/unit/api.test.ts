@@ -147,3 +147,23 @@ describe('UX endpoints (§14) and learning (§13)', () => {
     expect(exp.entries.some((e: { value: string }) => e.value === 'Dentist is Dr. Verdi')).toBe(true);
   });
 });
+
+describe('Autopilot', () => {
+  it('replies on its own to known contacts in real time; strangers and money still wait for Bruno; turning it off stops it', async () => {
+    const { h, app } = setup();
+    const auth = { authorization: `Bearer ${OWNER}` };
+    const on = await app.inject({ method: 'POST', url: '/v1/authority/templates/autopilot', headers: auth, payload: { scope: { accountIds: [ACCOUNT] } } });
+    expect(on.statusCode).toBe(200);
+    await h.j.inbound.handle(h.email({ from: { displayName: 'Marco Bianchi', address: 'marco@bianchi-music.it' }, body: 'Thursday at 4?' }), { autoDraft: true });
+    await h.j.actions.runDue();
+    expect(h.gmail.sent).toHaveLength(1);
+    await h.j.inbound.handle(h.email({ from: { displayName: 'Stranger', address: 'someone@unknown.test' }, body: 'Hi Bruno' }), { autoDraft: true });
+    await h.j.actions.runDue();
+    expect(h.gmail.sent).toHaveLength(1);
+    expect(h.j.authority.evaluate({ action: 'transfer_money', accountId: ACCOUNT, space: 'music', contactIds: [h.contacts.marco], recipientDomains: [], amountEur: 10, attachmentSpaces: [], recipientCount: 1 }).outcome).toBe('ask');
+    for (const r of on.json()) h.j.authority.revoke(r.id, 'bruno');
+    await h.j.inbound.handle(h.email({ from: { displayName: 'Marco Bianchi', address: 'marco@bianchi-music.it' }, body: 'And Friday?', providerThreadId: 'other' }), { autoDraft: true });
+    await h.j.actions.runDue();
+    expect(h.gmail.sent).toHaveLength(1);
+  });
+});

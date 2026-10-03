@@ -347,11 +347,12 @@ export class CapabilityRegistry {
   }
 
   /** Plain-language summary used by the Connections screen. */
-  screen(): Array<{ id: string; provider: string; account?: string; connected: boolean; canMonitor: boolean; actions: string[]; unavailable: string[]; lastSync?: string; problem?: string }> {
+  screen(): Array<{ id: string; provider: string; account?: string; accountId?: string; connected: boolean; canMonitor: boolean; actions: string[]; unavailable: string[]; lastSync?: string; problem?: string }> {
     return this.list().map((c) => ({
       id: c.id,
       provider: c.provider,
       account: c.accountLabel,
+      accountId: c.accountId,
       connected: c.connected,
       canMonitor: c.connected && ['verified', 'conditional'].includes(c.capabilities.read.status),
       actions: CAPABILITIES.filter((k) => c.connected && ['verified', 'conditional'].includes(c.capabilities[k].status)).map(

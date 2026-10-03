@@ -232,6 +232,7 @@ const views = {
       <label><input type="checkbox" data-pref="showDetails" \${np.showDetails ? 'checked' : ''}> Show details on the lock screen</label></div>\`;
     const [contacts, conns, fb, dlq, cost] = await Promise.all([api('/v1/contacts').catch(() => []), api('/v1/connections').catch(() => []), api('/v1/feedback').catch(() => ({ rules: [] })), api('/v1/dead-letters').catch(() => []), api('/v1/costs').catch(() => null)]);
     const ctl = t.controls;
+    ctl.autopilot = (await api('/v1/authority').catch(() => [])).some((r) => r.note === 'template:autopilot' && !r.revokedAt);
     const state = ctl.emergencyStop ? '<span class="bad">Emergency stop is on</span>' : ctl.globalPaused ? '<span class="bad">Paused</span>' : '<span class="good">Running</span>';
     const connPause = conns.filter((c) => c.connected).map((c) => { const p = ctl.pausedConnectors.includes(c.id); return \`<div>\${esc(c.provider)} <button class="btn" data-pausec="\${esc(c.id)}|\${p ? 'resume' : 'pause'}">\${p ? 'Resume' : 'Pause'}</button></div>\`; }).join('');
     const contactPause = contacts.map((c) => \`<div>\${esc(c.name)} <span class="muted">\${esc(c.identities.map((i) => i.value).join(', '))}</span> <button class="btn" data-pausek="\${esc(c.id)}|\${c.paused ? 'resume' : 'pause'}">\${c.paused ? 'Resume' : 'Pause'}</button></div>\`).join('') || '<div class="muted">No contacts yet.</div>';
@@ -242,6 +243,9 @@ const views = {
       <p class="muted">Stopping cancels queued work. Messages already sent cannot reliably be unsent.</p>
       <details><summary>Pause one account</summary>\${connPause || '<div class="muted">No connected accounts.</div>'}</details>
       <details><summary>Pause one contact</summary>\${contactPause}</details></div>
+      <div class="card"><strong>Autopilot</strong> \${ctl.autopilot ? '<span class="good">on</span>' : '<span class="muted">off</span>'}
+      <p class="muted">Jennifer replies on her own, in real time, to people you know on your connected accounts (email, texts, iMessage, WhatsApp), and books or moves meetings. Strangers, attachments, money, contracts and security changes still come to you. Turn it off any time.</p>
+      <div class="row"><button class="btn primary" data-autopilot="on">Turn on Autopilot</button><button class="btn" data-autopilot="off">Turn off</button></div></div>
       <h2>What Jennifer learned</h2>\${rules}\` + (cost ? \`<div class="card"><strong>This month</strong> about €\${cost.totalEur.toFixed(2)} of your €\${cost.ceilingEur} ceiling<div class="muted">Text €\${cost.byCategory.text.toFixed(2)} · voice €\${cost.byCategory.voice.toFixed(2)} · calls €\${cost.byCategory.phone.toFixed(2)}. Estimates from usage, not an invoice.</div></div>\` : '') + notif;
   },
 };
@@ -274,6 +278,18 @@ document.addEventListener('click', async (e) => {
   if (t.dataset.dlq) { const [id, op] = t.dataset.dlq.split('|'); try { await api('/v1/dead-letters/' + id + '/' + op, { method: 'POST', body: '{}' }); } catch (err) { $('#status').textContent = err.message; } return show(op === 'retry' ? 'today' : 'settings'); }
   if (t.dataset.memfix) { const v = prompt('What is correct?'); if (v) { await api('/v1/memory/' + t.dataset.memfix + '/correct', { method: 'POST', body: JSON.stringify({ value: v }) }); $('#status').textContent = 'Corrected. The old entry is kept as superseded.'; } return; }
   if (t.dataset.handoff) { api('/v1/actions/' + t.dataset.handoff + '/cancel', { method: 'POST', body: JSON.stringify({ reason: 'handed_off', note: 'sent by Bruno from his iPhone' }) }).catch(() => {}); return; }
+  if (t.dataset.autopilot) {
+    if (t.dataset.autopilot === 'on') {
+      const accounts = (await api('/v1/connections')).filter((c) => c.connected && c.accountId && ['gmail', 'sms', 'imessage', 'whatsapp_business'].includes(c.id)).map((c) => c.accountId);
+      if (!accounts.length) { $('#status').textContent = 'Connect Gmail, iMessage or WhatsApp first.'; return; }
+      await api('/v1/authority/templates/autopilot', { method: 'POST', body: JSON.stringify({ scope: { accountIds: accounts } }) });
+      $('#status').textContent = 'Autopilot is on.';
+    } else {
+      for (const r of (await api('/v1/authority')).filter((r) => r.note === 'template:autopilot' && !r.revokedAt)) await api('/v1/authority/' + r.id, { method: 'DELETE' });
+      $('#status').textContent = 'Autopilot is off.';
+    }
+    return show('settings');
+  }
   if (t.dataset.pron) {
     const pronunciations = Object.fromEntries($('#pron').value.split('\\n').map((l) => l.split('=').map((x) => x.trim())).filter((p) => p.length === 2 && p[0] && p[1]));
     await api('/v1/voice/settings', { method: 'PUT', body: JSON.stringify({ pronunciations }) }); $('#status').textContent = 'Pronunciations saved.'; return;

@@ -20,6 +20,17 @@ export interface AuthorityTemplate {
 
 export const AUTHORITY_TEMPLATES: AuthorityTemplate[] = [
   {
+    id: 'autopilot',
+    title: 'Autopilot',
+    description:
+      'Reply automatically, in real time, to people you know (verified contacts) on the chosen accounts, and schedule or move meetings. Unknown senders, attachments, unsupported claims, money, contracts and security changes still come to you.',
+    rules: [
+      { action: 'send_message', mode: 'execute', maxRecipients: 3 },
+      { action: 'create_event', mode: 'execute' },
+      { action: 'modify_event', mode: 'execute' },
+    ],
+  },
+  {
     id: 'routine_scheduling',
     title: 'Routine scheduling',
     description: 'Accept, propose and move meetings with chosen contacts, and send the matching short confirmations.',
