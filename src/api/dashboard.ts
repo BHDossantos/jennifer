@@ -37,6 +37,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   #voice { width:56px; height:56px; border-radius:50%; border:0; background:var(--accent); color:#fff; position:fixed; right:16px; bottom:16px; font-size:13px; }
   @media (prefers-reduced-motion: no-preference) { #voice[data-state="listening"] { animation: pulse 1.6s infinite; } }
   @keyframes pulse { 50% { box-shadow:0 0 0 12px color-mix(in srgb, var(--accent) 25%, transparent); } }
+  #ptt { touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
   input, textarea, select { font:inherit; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); width:100%; }
 </style>
 </head>
@@ -103,7 +104,7 @@ const card = (a) => \`<div class="card"><strong>\${esc(LABEL[a.type] || a.type)}
   \${a.subject ? '<div>' + esc(a.subject) + '</div>' : ''}<pre>\${esc(a.body)}</pre>
   \${a.attachmentIds.length ? '<div class="muted">Attachments: ' + esc(a.attachmentIds.join(', ')) + '</div>' : ''}
   <div class="muted">\${esc((a.consequences || []).join(' · '))}</div>
-  \${a.state === 'awaiting_decision' ? \`<div class="row"><button class="btn primary" data-approve="\${a.id}" data-rev="\${a.revision}" data-hash="\${a.payloadHash}">Approve and send</button><button class="btn" data-edit="\${a.id}">Edit</button>
+  \${a.state === 'awaiting_decision' ? \`<div class="row"><button class="btn primary" data-approve="\${a.id}" data-rev="\${a.revision}" data-hash="\${a.payloadHash}">Approve and send</button><button class="btn" data-edit="\${a.id}">Edit</button>\${a.channel === 'sms' && a.recipients.length === 1 ? \`<a class="btn" href="sms:\${esc(a.recipients[0])}&body=\${encodeURIComponent(a.body || '')}" data-handoff="\${a.id}">Send from my iPhone</a>\` : ''}
     <select style="width:auto" data-why="\${a.id}" aria-label="Why decline"><option value="rejected">Decline</option><option value="wrong_fact">Decline: wrong fact</option><option value="wrong_recipient">Decline: wrong recipient</option><option value="poor_tone">Decline: wrong tone</option><option value="incomplete_action">Decline: incomplete</option></select><button class="btn" data-cancel="\${a.id}">Decline</button></div>
     <div id="edit-\${a.id}" hidden><label>Subject <input id="es-\${a.id}" value="\${esc(a.subject || '')}"></label><label>Message <textarea id="eb-\${a.id}" rows="8">\${esc(a.body || '')}</textarea></label>
     <p class="muted">Saving creates a new version; you then approve that exact version.</p><button class="btn primary" data-saveedit="\${a.id}">Save changes</button></div>\` : ''}\${a.receipt ? '<div class="good">Receipt: ' + esc(a.receipt.evidence || a.receipt.deliveryStatus || '') + '</div>' : ''}</div>\`;
@@ -212,7 +213,12 @@ const views = {
     return (v.configured ? '' : '<div class="card bad">Voice needs OPENAI_API_KEY on the server.</div>') +
       '<p class="muted">Listen to each voice and choose Jennifer\\u2019s. Private mode is how she speaks to you; business mode is how she sounds to everyone else.</p>' + cards +
       \`<div class="card"><strong>Delivery</strong>\${slider('warmth', 0, 1, 0.1)}\${slider('playfulness', 0, 1, 0.1)}\${slider('speakingRate', 0.75, 1.25, 0.05)}
-      <label>Mode <select data-voiceset="mode"><option value="private" \${s.mode === 'private' ? 'selected' : ''}>Private (with you)</option><option value="business" \${s.mode === 'business' ? 'selected' : ''}>Business</option></select></label></div>\`;
+      <label>Mode <select data-voiceset="mode"><option value="private" \${s.mode === 'private' ? 'selected' : ''}>Private (with you)</option><option value="business" \${s.mode === 'business' ? 'selected' : ''}>Business</option></select></label></div>\`
+      + \`<div class="card"><strong>Push to talk (exact transcript)</strong>
+      <p class="muted">Slower than the Talk button, but you see exactly what was heard and said. Hold the button while you speak.</p>
+      <button class="btn primary" id="ptt" aria-label="Hold to talk">Hold to talk</button><div id="pttlog" aria-live="polite"></div></div>
+      <div class="card"><strong>Pronunciations</strong><p class="muted">One per line: <code>Bianchi = Bee-AHN-kee</code></p>
+      <textarea id="pron" rows="4">\${esc(Object.entries(s.pronunciations || {}).map(([k, v]) => k + ' = ' + v).join('\\n'))}</textarea><button class="btn" data-pron="1">Save pronunciations</button></div>\`;
   },
   async settings() {
     const t = await api('/v1/today');
@@ -266,6 +272,11 @@ document.addEventListener('click', async (e) => {
   if (t.dataset.rule) { const [id, st] = t.dataset.rule.split('|'); await api('/v1/feedback/rules/' + encodeURIComponent(id), { method: 'POST', body: JSON.stringify({ status: st }) }); return show('settings'); }
   if (t.dataset.dlq) { const [id, op] = t.dataset.dlq.split('|'); try { await api('/v1/dead-letters/' + id + '/' + op, { method: 'POST', body: '{}' }); } catch (err) { $('#status').textContent = err.message; } return show(op === 'retry' ? 'today' : 'settings'); }
   if (t.dataset.memfix) { const v = prompt('What is correct?'); if (v) { await api('/v1/memory/' + t.dataset.memfix + '/correct', { method: 'POST', body: JSON.stringify({ value: v }) }); $('#status').textContent = 'Corrected. The old entry is kept as superseded.'; } return; }
+  if (t.dataset.handoff) { api('/v1/actions/' + t.dataset.handoff + '/cancel', { method: 'POST', body: JSON.stringify({ reason: 'handed_off', note: 'sent by Bruno from his iPhone' }) }).catch(() => {}); return; }
+  if (t.dataset.pron) {
+    const pronunciations = Object.fromEntries($('#pron').value.split('\\n').map((l) => l.split('=').map((x) => x.trim())).filter((p) => p.length === 2 && p[0] && p[1]));
+    await api('/v1/voice/settings', { method: 'PUT', body: JSON.stringify({ pronunciations }) }); $('#status').textContent = 'Pronunciations saved.'; return;
+  }
   if (t.dataset.memexport) {
     const data = await api('/v1/memory/export');
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
@@ -434,6 +445,37 @@ function stopVoice() {
   if (rtc) { try { rtc.dc.close(); } catch {} rtc.mic.getTracks().forEach((t) => t.stop()); rtc.pc.close(); rtc = null; }
   setVoice('offline');
 }
+// ---- Push to talk: chained speech → Jennifer → speech, with exact transcripts.
+let ptt = null; let pttSession = null;
+async function pttStart(e) {
+  if (e.target.id !== 'ptt' || ptt) return;
+  e.preventDefault();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const type = ['audio/webm', 'audio/mp4'].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+    const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+    const chunks = [];
+    rec.ondataavailable = (ev) => ev.data.size && chunks.push(ev.data);
+    rec.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(chunks, { type: rec.mimeType || type || 'audio/webm' });
+      $('#ptt').textContent = 'Thinking…';
+      try {
+        const q = '?language=' + voiceLang() + (pttSession ? '&sessionId=' + encodeURIComponent(pttSession) : '');
+        const r = await api('/v1/voice/turn' + q, { method: 'POST', headers: { 'content-type': blob.type.split(';')[0] }, body: blob });
+        pttSession = r.sessionId;
+        $('#pttlog').insertAdjacentHTML('beforeend', \`<div class="card"><div class="muted">You: \${esc(r.transcript)}</div><div>Jennifer: \${esc(r.reply)}</div><div class="muted">\${r.timingsMs.total} ms</div></div>\`);
+        new Audio('data:audio/mpeg;base64,' + r.audioBase64).play().catch(() => {});
+      } catch (err) { $('#status').textContent = 'Voice: ' + err.message; }
+      $('#ptt').textContent = 'Hold to talk';
+    };
+    rec.start(); ptt = rec; $('#ptt').textContent = 'Listening… release to send';
+  } catch (err) { $('#status').textContent = 'Microphone: ' + err.message; }
+}
+function pttStop() { if (ptt) { ptt.stop(); ptt = null; } }
+document.addEventListener('pointerdown', pttStart);
+document.addEventListener('pointerup', pttStop);
+document.addEventListener('pointercancel', pttStop);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
 const startTab = new URLSearchParams(location.search).get('tab');

@@ -162,10 +162,10 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   app.post('/v1/actions/:id/cancel', owner, async (req) => {
     const { id } = z.object({ id: z.string() }).parse(req.params);
     // Optional "why": wrong fact, wrong recipient, poor tone... becomes learning feedback.
-    const b = z.object({ reason: z.enum(['rejected', 'wrong_fact', 'wrong_recipient', 'poor_tone', 'incomplete_action', 'escalation_needed']).default('rejected'), note: z.string().max(500).optional() }).parse(req.body ?? {});
+    const b = z.object({ reason: z.enum(['rejected', 'wrong_fact', 'wrong_recipient', 'poor_tone', 'incomplete_action', 'escalation_needed', 'handed_off']).default('rejected'), note: z.string().max(500).optional() }).parse(req.body ?? {});
     const wasDecision = j.actions.get(id).state === 'awaiting_decision';
     const canceled = j.actions.cancel(id, j.ownerId, b.note ? `canceled by Bruno: ${b.note}` : 'canceled by Bruno');
-    if (canceled && wasDecision) j.learning.rejected(id, b.reason, b.note);
+    if (canceled && wasDecision && b.reason !== 'handed_off') j.learning.rejected(id, b.reason, b.note);
     return { canceled };
   });
   // ---- Conversations ---------------------------------------------------------
@@ -344,6 +344,9 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
         playfulness: z.number().min(0).max(1).optional(),
         verbosity: z.enum(['brief', 'normal', 'detailed']).optional(),
         mode: z.enum(['private', 'business']).optional(),
+        provider: z.enum(['realtime_s2s', 'chained_asr_llm_tts']).optional(),
+        /** How to say names and words, e.g. {"Bianchi": "Bee-AHN-kee"}. */
+        pronunciations: z.record(z.string().min(1).max(60), z.string().min(1).max(120)).optional(),
       })
       .parse(req.body);
     const next = { ...(await voiceSettings()), ...b };
@@ -357,6 +360,28 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     return reply.type('audio/mpeg').header('cache-control', 'private, max-age=86400').send(audio);
   });
   /** Ephemeral realtime credentials for the app; the OpenAI API key never leaves the server. */
+  /**
+   * Chained voice (push-to-talk): audio in → transcript → Jennifer's chat
+   * (same tools and rules) → spoken reply. Exact transcripts, pronunciation
+   * dictionary applied, latency per stage recorded.
+   */
+  app.addContentTypeParser(/^audio\//, { parseAs: 'buffer', bodyLimit: 15 * 1024 * 1024 }, (_req, body, done) => done(null, body));
+  app.post('/v1/voice/turn', { ...owner, bodyLimit: 15 * 1024 * 1024 }, async (req) => {
+    await j.costs.assertBudget('voice conversations');
+    if (!Buffer.isBuffer(req.body) || req.body.length < 200) throw new JenniferError('voice.no_audio', 'Send the recording as audio/* (webm, m4a, wav or mp3)');
+    const q = z.object({ language: Lang.default('en'), sessionId: z.string().max(80).optional() }).parse(req.query);
+    const s = await voiceSettings();
+    let sessionId = q.sessionId;
+    const turn = await j.chainedVoice.turn({ audio: req.body as Buffer, mime: String(req.headers['content-type']), language: q.language, voice: s.voiceId ?? 'marin', mode: s.mode, settings: s }, async (text) => {
+      const r = await j.chat.send({ sessionId, message: text, mode: s.mode });
+      sessionId = r.sessionId;
+      return r.reply;
+    });
+    for (const [k, v] of Object.entries(turn.timingsMs)) j.metrics.observe(`voice_chained_${k}_ms`, v);
+    // Audio minutes in and out, roughly: recording size is unknown in seconds, so use the reply length as the estimate.
+    await j.costs.record('voice', 'voice_chained', (turn.reply.length / 900) * j.costs.pricing.voicePerMinute);
+    return { sessionId, transcript: turn.transcript, reply: turn.reply, audioBase64: turn.audio.toString('base64'), timingsMs: turn.timingsMs };
+  });
   /** The app reports how long a live voice conversation lasted (cost ledger). */
   app.post('/v1/voice/usage', owner, async (req) => {
     const b = z.object({ seconds: z.number().min(0).max(4 * 3600) }).parse(req.body);
@@ -735,6 +760,7 @@ function approvalCard(a: ReturnType<Jennifer['actions']['get']>) {
   return {
     id: a.id,
     type: a.type,
+    channel: a.channel,
     state: a.state,
     reason: a.stateReason,
     revision: a.revision,

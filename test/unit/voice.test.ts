@@ -96,3 +96,33 @@ describe('Jennifer voice', () => {
     expect(html).toMatch(/apple-mobile-web-app-capable/);
   });
 });
+
+describe('chained voice (push to talk)', () => {
+  it('transcribes, answers through chat, applies pronunciations and speaks; timings recorded', async () => {
+    const { applyPronunciations } = await import('../../src/voice/chained.js');
+    expect(applyPronunciations('Call Marco Bianchi about BIANCHI music', { Bianchi: 'Bee-AHN-kee' })).toBe('Call Marco Bee-AHN-kee about Bee-AHN-kee music');
+    expect(applyPronunciations('Bianchini stays', { Bianchi: 'x' })).toBe('Bianchini stays');
+
+    const { createJennifer } = await import('../../src/app.js');
+    const { ScriptedToolModel } = await import('../../src/core/agentLoop.js');
+    const { buildServer } = await import('../../src/api/server.js');
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      calls.push({ url, body: typeof init.body === 'string' ? JSON.parse(init.body) : init.body });
+      if (url.endsWith('/audio/transcriptions')) return new Response(JSON.stringify({ text: 'Remind me to call Bianchi' }), { status: 200 });
+      if (url.endsWith('/audio/speech')) return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+    const toolModel = new ScriptedToolModel(() => [{ type: 'assistant', text: 'Sure, I will remind you to call Bianchi.' }]);
+    const j = createJennifer({ fetchImpl, toolModel, config: { openai: { apiKey: 'sk-test-abcdefghijklmnopqrstuvwxyz' } } as never, inventoryPath: null as never });
+    await j.settings.set('voice', { pronunciations: { Bianchi: 'Bee-AHN-kee' }, voiceId: 'coral', mode: 'private' });
+    const app = buildServer(j, { tokens: { 'owner-token-0123456789': 'owner' } });
+    const r = await app.inject({ method: 'POST', url: '/v1/voice/turn?language=en', headers: { authorization: 'Bearer owner-token-0123456789', 'content-type': 'audio/webm' }, payload: Buffer.alloc(4000, 1) });
+    expect(r.statusCode).toBe(200);
+    const body = r.json();
+    expect(body).toMatchObject({ transcript: 'Remind me to call Bianchi', reply: 'Sure, I will remind you to call Bianchi.', audioBase64: Buffer.from([1, 2, 3]).toString('base64') });
+    const tts = calls.find((c) => c.url.endsWith('/audio/speech'))!.body as { input: string; voice: string };
+    expect(tts).toMatchObject({ input: 'Sure, I will remind you to call Bee-AHN-kee.', voice: 'coral' });
+    expect(j.metrics.snapshot().latenciesMs.voice_chained_total_ms!.n).toBe(1);
+  });
+});
