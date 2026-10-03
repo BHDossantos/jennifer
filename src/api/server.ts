@@ -412,6 +412,20 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     return req.role === 'owner' ? events : events.map((e) => ({ id: e.id, at: e.at, actor: e.actor, kind: e.kind }));
   });
 
+  // ---- Phone calls (OpenAI Realtime SIP) ------------------------------------
+  /** Signed by OpenAI (Standard Webhooks); no bearer auth. */
+  app.post('/v1/webhooks/openai', async (req, reply) => {
+    const headers = Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v])) as Record<string, string | undefined>;
+    try {
+      const r = await j.phone.handleWebhook(req.rawBody ?? '', headers);
+      return reply.code(200).send(r);
+    } catch (e) {
+      if (e instanceof JenniferError && e.code.startsWith('webhook.')) return reply.code(401).send({ error: 'bad signature' });
+      throw e;
+    }
+  });
+  app.get('/v1/calls', owner, async () => ({ configured: j.phone.configured, calls: await j.phone.log() }));
+
   // ---- Provider webhooks ---------------------------------------------------
   app.post('/v1/webhooks/email/:connectorId', async (req, reply) => {
     if (!opts.webhookSecret) return reply.code(503).send({ error: 'webhooks not configured' });

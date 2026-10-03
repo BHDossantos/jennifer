@@ -25,6 +25,10 @@ services:
         sync: false                  # paste in the Render dashboard
       - key: JENNIFER_EMAIL_SANDBOX  # optional: only these recipients until you remove it
         sync: false
+      - key: OPENAI_WEBHOOK_SECRET   # phone calls: from OpenAI dashboard → Webhooks (realtime.call.incoming)
+        sync: false
+      - key: JENNIFER_TRANSFER_NUMBER  # your own number (E.164) for warm transfers; leave empty to disable
+        sync: false
 
 databases:
   - name: jennifer-db

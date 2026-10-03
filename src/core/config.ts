@@ -13,12 +13,15 @@ const ConfigSchema = z.object({
   webhookSecret: z.string().min(16).optional(),
   openai: z.object({
     apiKey: z.string().optional(),
+    webhookSecret: z.string().optional(),
     baseUrl: z.string().url().default('https://api.openai.com/v1'),
     reasoningModel: z.string().default('gpt-5'),
     fastModel: z.string().default('gpt-5-mini'),
     realtimeModel: z.string().default('gpt-realtime'),
     promptVersion: z.string().default('jennifer-2026-10-01'),
   }),
+  /** Bruno's own number for warm transfers from Jennifer's phone line (E.164). */
+  transferNumber: z.string().regex(/^\+\d{8,15}$/).optional(),
   budgets: z.object({
     monthlyCeilingEur: z.coerce.number().default(1000),
     perTaskMaxEur: z.coerce.number().default(0.5),
@@ -37,12 +40,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webhookSecret: env.JENNIFER_WEBHOOK_SECRET,
     openai: {
       apiKey: env.OPENAI_API_KEY,
+      webhookSecret: env.OPENAI_WEBHOOK_SECRET,
       baseUrl: env.OPENAI_BASE_URL,
       reasoningModel: env.JENNIFER_REASONING_MODEL,
       fastModel: env.JENNIFER_FAST_MODEL,
       realtimeModel: env.JENNIFER_REALTIME_MODEL,
       promptVersion: env.JENNIFER_PROMPT_VERSION,
     },
+    transferNumber: env.JENNIFER_TRANSFER_NUMBER || undefined,
     budgets: {
       monthlyCeilingEur: env.JENNIFER_MONTHLY_CEILING_EUR,
       perTaskMaxEur: env.JENNIFER_TASK_MAX_EUR,

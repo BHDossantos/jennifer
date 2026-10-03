@@ -47,6 +47,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   <button data-tab="ask">Ask</button>
   <button data-tab="missions">Missions</button>
   <button data-tab="tasks">Tasks</button>
+  <button data-tab="calls">Calls</button>
   <button data-tab="connections">Connections</button>
   <button data-tab="memory">Memory</button>
   <button data-tab="voice">Voice</button>
@@ -132,6 +133,13 @@ const views = {
   },
   async memory() {
     return \`<div class="card"><label>Search memory <input id="mq" placeholder="e.g. travel in November"></label></div><div id="mres"></div>\`;
+  },
+  async calls() {
+    const r = await api('/v1/calls');
+    if (!r.configured && r.calls.length === 0) return '<div class="card muted">Phone calls are not set up yet. Jennifer needs a phone number (SignalWire or Twilio) pointed at OpenAI, plus OPENAI_WEBHOOK_SECRET. See the README.</div>';
+    return r.calls.map((c) => \`<div class="card"><strong>\${esc(c.callerIdHint || c.from || 'Unknown caller')}</strong> <span class="muted">· \${esc(new Date(c.startedAt).toLocaleString())} · \${esc(c.outcome || 'in progress')}</span>
+      \${c.messages.map((m) => \`<div class="card \${m.urgent ? 'bad' : ''}"><div>\${esc(m.text)}</div><div class="muted">\${esc(m.name || '')} \${esc(m.callbackNumber || '')}</div></div>\`).join('')}
+      <details><summary class="muted">Call log</summary>\${c.events.map((e) => '<div class="muted">' + esc(new Date(e.at).toLocaleTimeString()) + ' · ' + esc(e.text) + '</div>').join('')}</details></div>\`).join('') || '<p class="muted">No calls yet.</p>';
   },
   async ask() {
     const bubbles = chatLog.map((m) => \`<div class="card" style="\${m.who === 'you' ? 'margin-left:15%' : 'margin-right:15%'}"><div class="muted">\${m.who === 'you' ? 'You' : 'Jennifer'}</div><div style="white-space:pre-wrap">\${esc(m.text)}</div></div>\`).join('');

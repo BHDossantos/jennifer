@@ -23,13 +23,13 @@ export const PrefsSchema = z.object({
   timeZone: z.string().default('Europe/Rome'),
   showDetails: z.boolean().default(false), // lock-screen privacy
   kinds: z
-    .object({ decision: z.boolean().default(true), mission: z.boolean().default(true), problem: z.boolean().default(true), message: z.boolean().default(false) })
-    .default({ decision: true, mission: true, problem: true, message: false }),
+    .object({ decision: z.boolean().default(true), mission: z.boolean().default(true), problem: z.boolean().default(true), call: z.boolean().default(true), message: z.boolean().default(false) })
+    .default({ decision: true, mission: true, problem: true, call: true, message: false }),
 });
 export type NotificationPrefs = z.infer<typeof PrefsSchema>;
 
 export interface Notice {
-  kind: 'decision' | 'mission' | 'problem' | 'message';
+  kind: 'decision' | 'mission' | 'problem' | 'call' | 'message';
   title: string;
   /** Generic text shown when details are hidden. */
   body: string;
@@ -133,7 +133,7 @@ export class NotificationService {
     if (this.held.length === 0 || this.isQuiet(p)) return 0;
     const items = this.held.splice(0);
     const counts = items.reduce<Record<string, number>>((acc, i) => ((acc[i.kind] = (acc[i.kind] ?? 0) + 1), acc), {});
-    const parts = Object.entries(counts).map(([k, v]) => `${v} ${k === 'decision' ? 'decision' : k === 'mission' ? 'mission update' : k === 'problem' ? 'problem' : 'message'}${v > 1 ? 's' : ''}`);
+    const parts = Object.entries(counts).map(([k, v]) => `${v} ${k === 'decision' ? 'decision' : k === 'mission' ? 'mission update' : k === 'problem' ? 'problem' : k === 'call' ? 'call message' : 'message'}${v > 1 ? 's' : ''}`);
     await this.deliver({ kind: 'decision', title: 'Jennifer: while you were resting', body: parts.join(', '), url: '/', dedupKey: `digest:${this.d.clock.now().toISOString()}` }, p);
     return items.length;
   }

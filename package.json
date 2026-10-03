@@ -26,6 +26,7 @@
     "nodemailer": "^10.0.13",
     "pg": "^8.23.1",
     "web-push": "^3.6.7",
+    "ws": "^8.22.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -38,6 +39,7 @@
     "@types/pg": "^8.23.1",
     "@types/smtp-server": "^3.5.13",
     "@types/web-push": "^3.6.4",
+    "@types/ws": "^8.18.2",
     "hoodiecrow-imap": "^2.1.0",
     "smtp-server": "^3.19.16",
     "tsx": "^4.23.15",

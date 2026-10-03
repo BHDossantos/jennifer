@@ -7,9 +7,11 @@ Bruno's persistent executive assistant: backend foundation, policy engine, durab
 > - **Voice:** a female realtime voice (Marin by default; audition Shimmer, Coral, Sage) with private and business personas.
 > - **Missions:** always-on agents similar to ChatGPT "dots".
 > - **App:** an installable home-screen app.
+> - **Calendar:** iCloud (read/write via CalDAV) and Google (read-only iCal feed), still no Google Cloud project.
+> - **Chat, notifications and calls:** text chat, push notifications with quiet hours, and phone calls through OpenAI Realtime SIP (message taking, availability, transfer).
 > - **Foundation:** passkey sign-in, an encrypted vault, and a durable Postgres action pipeline.
 >
-> Calendar, phone calls and messaging connectors are next. See [`docs/BACKLOG.md`](docs/BACKLOG.md).
+> Messaging connectors (WhatsApp Business) and outbound calls are next. See [`docs/BACKLOG.md`](docs/BACKLOG.md).
 
 ## Put Jennifer on your iPhone
 
@@ -19,6 +21,13 @@ Bruno's persistent executive assistant: backend foundation, policy engine, durab
 4. **Voice:** in the **Voice** tab, play the four voices and choose one. Tap **Talk** anywhere to speak with her.
 5. **Gmail:** Google Account → Security → 2-Step Verification → **App passwords** → create "Jennifer". In **Connections**, paste your address and the app password.
 6. **Missions:** in **Missions**, start "Inbox watch" or "Morning priorities", or write your own goal and choose what she may do alone.
+7. **Calendar:** in **Connections**, connect iCloud Calendar (appleid.apple.com → App-Specific Passwords) and optionally your Google Calendar's secret iCal address (read-only).
+8. **Notifications:** in **Settings → Turn on notifications** (works once Jennifer is on the Home Screen).
+9. **Phone calls (optional):**
+   - **Number:** get a number from SignalWire (Workforce already uses it) or Twilio. Point its SIP trunk at `sip:<your OpenAI project id>@sip.api.openai.com;transport=tls`.
+   - **Webhook:** in the OpenAI dashboard → Webhooks, add `https://<your Jennifer URL>/v1/webhooks/openai` for `realtime.call.incoming`. Put its secret in `OPENAI_WEBHOOK_SECRET`.
+   - **Transfers:** optionally set `JENNIFER_TRANSFER_NUMBER` to your own number.
+   - **AT&T forwarding:** after a test call works, dial `**61*<Jennifer's number>#` on your iPhone so unanswered calls reach her. `##61#` turns it off.
 
 ## Core rule
 
@@ -37,7 +46,7 @@ Ambiguous provider results (timeouts) are **reconciled** before any retry. Nothi
 
 ```bash
 npm install
-npm test            # 89 tests: acceptance A–K, Postgres, passkeys, Gmail (local IMAP/SMTP), voice, missions
+npm test            # 106 tests: acceptance A–K, Postgres, passkeys, Gmail, calendar (CalDAV), voice, phone, missions, chat, push
 npm run typecheck
 npm run simulate    # end-to-end walkthrough against the fake inbox
 npm run dev         # API + dashboard on http://localhost:8787, durable (PGlite in .data/ or DATABASE_URL)

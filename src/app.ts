@@ -30,6 +30,7 @@ import { OpenAIToolModel, type ToolCallingModel } from './core/agentLoop.js';
 import { MemoryMissionStore, PgMissionStore, type MissionStore } from './missions/missions.js';
 import { MissionService } from './missions/runner.js';
 import { ChatService } from './assistant/chat.js';
+import { PhoneService, type SidebandSocket } from './voice/phone.js';
 import { NotificationService, type PushSender, type SecretKV } from './notify/push.js';
 import { migrate } from './db/migrate.js';
 import { PgEventLog, PgStateStore, ensureOwner } from './db/pgStore.js';
@@ -58,6 +59,7 @@ export interface JenniferOptions {
   /** Where VAPID keys are kept (vault in production). */
   secrets?: SecretKV;
   pushSender?: PushSender;
+  openSideband?: (url: string, headers: Record<string, string>) => SidebandSocket;
 }
 
 /**
@@ -163,6 +165,23 @@ export function createJennifer(opts: JenniferOptions = {}) {
     },
   });
   const chat = new ChatService({ clock, ownerId, tools, memory, audit, model: toolModel, modelName: config.openai.reasoningModel, homeTimeZone: config.homeTimeZone });
+  const phone = new PhoneService({
+    clock,
+    ownerId,
+    apiKey: config.openai.apiKey,
+    baseUrl: config.openai.baseUrl,
+    model: config.openai.realtimeModel,
+    webhookSecret: config.openai.webhookSecret,
+    settings,
+    audit,
+    contacts,
+    calendar,
+    notifications,
+    homeTimeZone: config.homeTimeZone,
+    transferTarget: config.transferNumber,
+    fetchImpl: opts.fetchImpl,
+    openSideband: opts.openSideband,
+  });
   registerCalendarTools(tools, { ownerId, calendar, actions, capabilities, clock, homeTimeZone: config.homeTimeZone });
   tools.register({
     name: 'list_missions',
@@ -213,6 +232,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     missions,
     chat,
     notifications,
+    phone,
     dailyBrief,
   };
 }
