@@ -287,3 +287,17 @@ describe('Gmail history import', () => {
     expect(j.conversations.listConversations('bruno').length).toBe(before);
   });
 });
+
+describe('SMTP error classification (no duplicate sends)', () => {
+  it('only pre-DATA failures are retried; connection drops after sending are reconciled', async () => {
+    const { classifySmtpError } = await import('../../src/connectors/gmail/gmailConnector.js');
+    expect(classifySmtpError({ code: 'ETIMEDOUT', command: 'CONN', message: 'Timeout' })).toEqual({ kind: 'timeout' });
+    expect(classifySmtpError({ code: 'ECONNECTION', command: 'CONN', message: 'Connection closed' })).toEqual({ kind: 'timeout' });
+    expect(classifySmtpError({ code: 'ESOCKET', message: 'socket hang up' })).toEqual({ kind: 'timeout' });
+    expect(classifySmtpError({ code: 'EMESSAGE', command: 'DATA', responseCode: 451, message: 'try later' })).toEqual({ kind: 'timeout' });
+    expect(classifySmtpError({ code: 'EENVELOPE', command: 'RCPT TO', responseCode: 450, message: 'busy' })).toMatchObject({ kind: 'rejected', retryable: true });
+    expect(classifySmtpError({ code: 'EENVELOPE', command: 'RCPT TO', responseCode: 550, message: 'no such user' })).toMatchObject({ kind: 'rejected', retryable: false });
+    expect(classifySmtpError({ code: 'EMESSAGE', command: 'DATA', responseCode: 552, message: 'too big' })).toMatchObject({ kind: 'rejected', retryable: false });
+    expect(classifySmtpError({ code: 'EAUTH', command: 'AUTH PLAIN', responseCode: 535, message: 'bad' })).toMatchObject({ kind: 'rejected', retryable: false });
+  });
+});

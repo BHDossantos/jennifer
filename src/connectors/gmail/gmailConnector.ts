@@ -110,14 +110,21 @@ interface SmtpError {
 }
 
 /**
- * Nothing was accepted if SMTP failed before DATA completed; a failure
- * during or after DATA is ambiguous and must be reconciled, never resent.
+ * Retry is only safe when SMTP failed before the message body was handed
+ * over (greeting, auth, MAIL FROM, RCPT TO). Any network error or timeout
+ * during or after DATA - nodemailer reports those as CONN/ETIMEDOUT/
+ * ECONNECTION too - may follow a delivery, so it is ambiguous and must be
+ * reconciled against Sent Mail before any resend.
  */
 export function classifySmtpError(e: SmtpError): SendResult {
   if (e.code === 'EAUTH' || e.responseCode === 535 || e.responseCode === 534)
     return { kind: 'rejected', error: `unauthorized: Gmail rejected the app password (${e.responseCode ?? e.code})`, retryable: false };
-  if (e.command === 'DATA' || (e.code && ['ETIMEDOUT', 'ECONNRESET', 'ESOCKET'].includes(e.code) && (!e.command || e.command === 'DATA')))
-    return { kind: 'timeout' };
-  if (e.responseCode && e.responseCode >= 500) return { kind: 'rejected', error: `SMTP ${e.responseCode}: ${e.message}`, retryable: false };
-  return { kind: 'rejected', error: `SMTP ${e.responseCode ?? e.code ?? ''}: ${e.message}`, retryable: true };
+  const beforeData = e.code === 'EENVELOPE' || /^(EHLO|HELO|STARTTLS|AUTH|MAIL|RCPT)\b/i.test(e.command ?? '');
+  if (beforeData) {
+    if (e.responseCode && e.responseCode >= 500) return { kind: 'rejected', error: `SMTP ${e.responseCode}: ${e.message}`, retryable: false };
+    return { kind: 'rejected', error: `SMTP ${e.responseCode ?? e.code ?? ''}: ${e.message}`, retryable: true };
+  }
+  // A definitive permanent rejection of the message content.
+  if (e.command === 'DATA' && e.responseCode && e.responseCode >= 500) return { kind: 'rejected', error: `SMTP ${e.responseCode}: ${e.message}`, retryable: false };
+  return { kind: 'timeout' };
 }
