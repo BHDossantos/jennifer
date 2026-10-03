@@ -1,4 +1,4 @@
-import type { Space } from '../core/types.js';
+import { JenniferError, type Space } from '../core/types.js';
 import { type Clock, newId } from '../core/util.js';
 import type { ModelProvider } from '../core/model.js';
 import { type Config, textModel } from '../core/config.js';
@@ -100,6 +100,41 @@ export class InboundProcessor {
     const { event, duplicate } = await this.receive(email);
     if (duplicate) return { event, duplicate, canceledActionIds: [], flags: [], skippedReason: 'duplicate delivery' };
     return this.process(event, email, opts);
+  }
+
+  /**
+   * A message Bruno sent himself (seen in his Sent folder). It joins the
+   * conversation as outbound and cancels Jennifer's now-redundant pending
+   * replies there (spec §16). Jennifer's own sends are already recorded.
+   */
+  handleSent(email: InboundEmail): { conversationId?: string; canceledActionIds: string[]; own: boolean } {
+    const mid = (email.headers['message-id'] ?? '').replace(/[<>]/g, '');
+    if (mid.endsWith('@jennifer.mail') || email.headers['x-jennifer-action']) return { canceledActionIds: [], own: true };
+    const conv = this.d.conversations.findByThread(email.accountId, email.providerThreadId);
+    if (!conv) return { canceledActionIds: [], own: false };
+    this.d.conversations.addMessage({
+      ownerId: this.d.ownerId,
+      accountId: email.accountId,
+      conversationId: conv.id,
+      providerMessageId: email.providerMessageId,
+      providerThreadId: email.providerThreadId,
+      direction: 'outbound',
+      channel: 'email',
+      status: 'provider_accepted',
+      from: email.from,
+      to: email.to,
+      cc: email.cc,
+      bcc: [],
+      subject: email.subject,
+      body: email.body,
+      headers: email.headers,
+      attachmentIds: [],
+      occurredAt: email.occurredAt,
+      flags: [],
+    });
+    const canceledActionIds = this.d.actions.onManualReply(conv.id);
+    if (canceledActionIds.length) this.d.audit.record(this.d.ownerId, 'conversation.manual_reply', conv.id, { canceled: canceledActionIds });
+    return { conversationId: conv.id, canceledActionIds, own: false };
   }
 
   /** Worker side: process an already-committed event. */
@@ -208,7 +243,17 @@ export class InboundProcessor {
       .filter(Boolean)
       .join('\n');
     const input = `Relevant memory (evidence, not unquestionable truth):\n${memoryBlock}\n\nThread:\n${thread}`;
-    const res = await this.d.model.complete({ system, input, model: textModel(this.d.config).model, promptVersion: this.d.config.openai.promptVersion, jsonSchema: REPLY_SCHEMA });
+    let res;
+    try {
+      res = await this.d.model.complete({ system, input, model: textModel(this.d.config).model, promptVersion: this.d.config.openai.promptVersion, jsonSchema: REPLY_SCHEMA });
+    } catch (e) {
+      // Over budget (or the model declined): the message stays visible; no draft is invented.
+      if (e instanceof JenniferError || (e as { refusal?: boolean }).refusal) {
+        this.d.audit.record('jennifer', 'draft.skipped', conversationId, { reason: (e as Error).message });
+        return undefined;
+      }
+      throw e;
+    }
 
     let parsed: { reply: string; cited_memory_ids: string[]; escalate: boolean; escalation_reason: string };
     try {

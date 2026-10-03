@@ -212,7 +212,14 @@ export class PgStateStore implements ActionDurability {
     });
   }
 
-  conversationChange(e: { conversation?: Conversation; message?: Message; attachment?: Attachment }): void {
+  conversationChange(e: { conversation?: Conversation; message?: Message; attachment?: Attachment; purgedMessageIds?: string[] }): void {
+    if (e.purgedMessageIds) {
+      const ids = [...e.purgedMessageIds];
+      this.q.push(async () => {
+        for (let i = 0; i < ids.length; i += 500) await this.db.query('DELETE FROM message_doc WHERE id = ANY($1::text[])', [ids.slice(i, i + 500)]);
+      });
+      return;
+    }
     const conv = e.conversation ? structuredClone(e.conversation) : undefined;
     const msg = e.message ? structuredClone(e.message) : undefined;
     const att = e.attachment ? structuredClone(e.attachment) : undefined;

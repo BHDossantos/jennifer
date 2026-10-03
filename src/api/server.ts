@@ -229,6 +229,27 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     return approvalCard(j.actions.get(fresh.id));
   });
 
+  // ---- Operations: reliability and cost (spec §18) -----------------------------
+  /** No correspondence here, so operators may read it too. */
+  app.get('/v1/metrics', anyone, async () => {
+    const now = j.clock.now().getTime();
+    const all = j.actions.list({ ownerId: j.ownerId });
+    const byState: Record<string, number> = {};
+    for (const a of all) byState[a.state] = (byState[a.state] ?? 0) + 1;
+    const stuck = all.filter((a) => (a.state === 'ready' || a.state === 'executing') && now - a.createdAt.getTime() > 10 * 60_000).length;
+    const completed = all.filter((a) => a.state === 'provider_accepted' || a.state === 'confirmed').length;
+    const costs = await j.costs.totals();
+    return {
+      at: new Date(now).toISOString(),
+      actions: { byState, ambiguous: byState.unknown ?? 0, stuck, completed },
+      deadLetters: j.deadLetters.list().length,
+      connectors: j.capabilities.list().filter((c) => c.connected || c.accountId).map((c) => ({ id: c.id, connected: c.connected, lastSyncAgeMin: c.lastSuccessfulSyncAt ? Math.round((now - c.lastSuccessfulSyncAt.getTime()) / 60_000) : null, problem: c.lastError })),
+      costs: { ...costs, perCompletedActionEur: completed ? +(costs.totalEur / completed).toFixed(4) : null },
+      ...j.metrics.snapshot(),
+    };
+  });
+  app.get('/v1/costs', owner, async () => j.costs.totals());
+
   // ---- Learning: feedback and proposed rules ---------------------------------
   app.get('/v1/feedback', owner, async () => ({ feedback: j.feedback.list().slice(-200).reverse(), rules: j.feedback.allRules() }));
   app.post('/v1/feedback/rules/:id', owner, async (req) => {
@@ -285,8 +306,8 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
 
   // ---- Voice -----------------------------------------------------------------
-  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'search_ai_history'];
-  const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read']) };
+  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'search_ai_history', 'web_search'];
+  const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read', 'web:read']) };
   type StoredVoice = VoiceSettings & { mode: 'private' | 'business' };
   const voiceSettings = async (): Promise<StoredVoice> => ({ ...DEFAULT_VOICE, voiceId: 'marin', mode: 'private', ...(await j.settings.get<StoredVoice>('voice')) });
   const Lang = z.enum(['en', 'pt-BR', 'es', 'it']);
@@ -314,7 +335,14 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     return reply.type('audio/mpeg').header('cache-control', 'private, max-age=86400').send(audio);
   });
   /** Ephemeral realtime credentials for the app; the OpenAI API key never leaves the server. */
+  /** The app reports how long a live voice conversation lasted (cost ledger). */
+  app.post('/v1/voice/usage', owner, async (req) => {
+    const b = z.object({ seconds: z.number().min(0).max(4 * 3600) }).parse(req.body);
+    await j.costs.record('voice', 'voice_session', (b.seconds / 60) * j.costs.pricing.voicePerMinute);
+    return { ok: true };
+  });
   app.post('/v1/voice/session', owner, async (req) => {
+    await j.costs.assertBudget('voice conversations');
     const b = z.object({ language: Lang.default('en'), mode: z.enum(['private', 'business']).optional() }).parse(req.body ?? {});
     const s = await voiceSettings();
     const tools = j.tools.forRole(voiceCtx).map((t) => {

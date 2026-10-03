@@ -51,6 +51,9 @@ export interface MailboxWorkerOptions {
   onEmail: (email: InboundEmail) => Promise<void>;
   onStatus?: (s: WorkerStatus) => void;
   onSynced?: () => void;
+  /** Messages Bruno sent himself (Sent folder), checked at most every `sentIntervalMs`. */
+  onSent?: (email: InboundEmail) => Promise<void>;
+  sentIntervalMs?: number;
   /** Safety-net full poll even when IDLE is healthy (spec §5: notifications can be missed). */
   pollIntervalMs?: number;
 }
@@ -101,8 +104,24 @@ export class MailboxWorker {
     const r = await this.o.mailbox.sync(cursor, { client });
     for (const e of r.emails) await this.o.onEmail(toInbound(e, this.o));
     await this.o.cursors.put(this.o.connectorId, this.o.accountId, r.cursor);
+    await this.syncSent().catch(() => undefined); // best effort; INBOX health is what the status reports
     this.o.onSynced?.();
     this.o.onStatus?.({ state: 'idle' });
+    return r.emails.length;
+  }
+
+  private lastSentSync = 0;
+
+  /** Separate short-lived connection, so the IDLE connection stays on INBOX. */
+  async syncSent(force = false): Promise<number> {
+    if (!this.o.onSent) return 0;
+    const now = this.o.clock.now().getTime();
+    if (!force && now - this.lastSentSync < (this.o.sentIntervalMs ?? 60_000)) return 0;
+    this.lastSentSync = now;
+    const key = `${this.o.accountId}#sent`;
+    const r = await this.o.mailbox.syncSent(await this.o.cursors.get(this.o.connectorId, key));
+    for (const e of r.emails) await this.o.onSent(toInbound(e, this.o));
+    await this.o.cursors.put(this.o.connectorId, key, r.cursor);
     return r.emails.length;
   }
 

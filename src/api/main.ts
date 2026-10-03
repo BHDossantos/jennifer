@@ -49,6 +49,7 @@ const gmail = vault
       environment: env,
       onEmail: async (email) => void (await j.inbound.handle(email, { autoDraft: true })),
       onHistory: async (email) => void (await j.inbound.handle(email, { autoDraft: false })),
+      onSent: async (email) => void j.inbound.handleSent(email),
       registerConnector: (c) => j.emailConnectors.set(c.id, c),
     })
   : undefined;
@@ -99,6 +100,11 @@ const missionTimer = setInterval(() => {
   void j.notifications.flushHeld().catch((e) => app.log.error(e));
 }, 60_000);
 missionTimer.unref();
+// Retention purge once a day (and shortly after boot).
+const retentionRun = () => void j.retention.purge().catch((e) => app.log.error(e));
+const retentionTimer = setInterval(retentionRun, 24 * 3600_000);
+retentionTimer.unref();
+setTimeout(retentionRun, 60_000).unref();
 timer.unref();
 
 async function shutdown(signal: string) {
@@ -106,6 +112,7 @@ async function shutdown(signal: string) {
   clearInterval(timer);
   clearInterval(missionTimer);
   clearInterval(calendarTimer);
+  clearInterval(retentionTimer);
   await app.close();
   await j.store.flush();
   await db!.close();

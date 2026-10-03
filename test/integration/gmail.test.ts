@@ -101,6 +101,7 @@ async function setup(opts: { sandbox?: string[] } = {}) {
     cursors,
     clock,
     onEmail: async (e) => void (await j.inbound.handle(e, { autoDraft: true })),
+    onSent: async (e) => void j.inbound.handleSent(e),
     onSynced: () => j.capabilities.recordSync('gmail'),
   });
   return { f, j, gmail, mailbox, worker, cursors, marco };
@@ -149,6 +150,21 @@ describe('Gmail connector (IMAP + SMTP, app password)', () => {
     expect(sent.references).toEqual(['<m1@bianchi.test>', '<m2@bianchi.test>']);
     expect(sent.subject).toBe('Re: Thursday?');
     expect(sent.text?.trim()).toBe('Thursday at 16:00 works for me.');
+  });
+
+  it('Bruno replying himself from Gmail cancels Jennifer\'s pending reply (Sent folder sync)', async () => {
+    const { f, j, worker } = await setup();
+    await worker.syncOnce();
+    await worker.syncSent(true); // first look at Sent starts from "now"
+    f.deliver(marcoMail('m1'));
+    await worker.syncOnce();
+    const [pending] = j.actions.list({ state: 'awaiting_decision' });
+    expect(pending).toBeDefined();
+    f.imapServer.appendMessage('[Gmail]/Sent Mail', ['\\Seen'], false, `From: Bruno <${ADDRESS}>\r\nTo: marco@bianchi.test\r\nSubject: Re: Thursday?\r\nMessage-ID: <manual1@mail.gmail.com>\r\nIn-Reply-To: <m1@bianchi.test>\r\nReferences: <m1@bianchi.test>\r\n\r\nSure, 4pm!`);
+    expect(await worker.syncSent(true)).toBe(1);
+    expect(j.actions.get(pending!.id)).toMatchObject({ state: 'canceled', stateReason: 'Bruno replied manually' });
+    const [conv] = j.conversations.listConversations('bruno');
+    expect(j.conversations.messagesIn(conv!.id).map((m) => m.direction)).toEqual(['inbound', 'outbound']);
   });
 
   it('a failure after DATA is reconciled through Sent Mail, never resent', async () => {

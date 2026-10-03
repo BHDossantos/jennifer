@@ -223,7 +223,7 @@ const views = {
       <label>Quiet from <input type="time" data-pref="quietStart" value="\${np.quietStart}"></label>
       <label>until <input type="time" data-pref="quietEnd" value="\${np.quietEnd}"></label>
       <label><input type="checkbox" data-pref="showDetails" \${np.showDetails ? 'checked' : ''}> Show details on the lock screen</label></div>\`;
-    const [contacts, conns, fb, dlq] = await Promise.all([api('/v1/contacts').catch(() => []), api('/v1/connections').catch(() => []), api('/v1/feedback').catch(() => ({ rules: [] })), api('/v1/dead-letters').catch(() => [])]);
+    const [contacts, conns, fb, dlq, cost] = await Promise.all([api('/v1/contacts').catch(() => []), api('/v1/connections').catch(() => []), api('/v1/feedback').catch(() => ({ rules: [] })), api('/v1/dead-letters').catch(() => []), api('/v1/costs').catch(() => null)]);
     const ctl = t.controls;
     const state = ctl.emergencyStop ? '<span class="bad">Emergency stop is on</span>' : ctl.globalPaused ? '<span class="bad">Paused</span>' : '<span class="good">Running</span>';
     const connPause = conns.filter((c) => c.connected).map((c) => { const p = ctl.pausedConnectors.includes(c.id); return \`<div>\${esc(c.provider)} <button class="btn" data-pausec="\${esc(c.id)}|\${p ? 'resume' : 'pause'}">\${p ? 'Resume' : 'Pause'}</button></div>\`; }).join('');
@@ -235,7 +235,7 @@ const views = {
       <p class="muted">Stopping cancels queued work. Messages already sent cannot reliably be unsent.</p>
       <details><summary>Pause one account</summary>\${connPause || '<div class="muted">No connected accounts.</div>'}</details>
       <details><summary>Pause one contact</summary>\${contactPause}</details></div>
-      <h2>What Jennifer learned</h2>\${rules}\` + notif;
+      <h2>What Jennifer learned</h2>\${rules}\` + (cost ? \`<div class="card"><strong>This month</strong> about €\${cost.totalEur.toFixed(2)} of your €\${cost.ceilingEur} ceiling<div class="muted">Text €\${cost.byCategory.text.toFixed(2)} · voice €\${cost.byCategory.voice.toFixed(2)} · calls €\${cost.byCategory.phone.toFixed(2)}. Estimates from usage, not an invoice.</div></div>\` : '') + notif;
   },
 };
 let current = 'today';
@@ -426,10 +426,11 @@ async function startVoice() {
   const ans = await fetch(s.callsUrl, { method: 'POST', body: offer.sdp, headers: { authorization: 'Bearer ' + s.clientSecret, 'content-type': 'application/sdp' } });
   if (!ans.ok) throw new Error('voice connection refused (' + ans.status + ')');
   await pc.setRemoteDescription({ type: 'answer', sdp: await ans.text() });
-  rtc = { pc, mic, dc, audio };
+  rtc = { pc, mic, dc, audio, startedAt: Date.now() };
   setVoice('listening');
 }
 function stopVoice() {
+  if (rtc && rtc.startedAt) api('/v1/voice/usage', { method: 'POST', body: JSON.stringify({ seconds: Math.round((Date.now() - rtc.startedAt) / 1000) }) }).catch(() => {});
   if (rtc) { try { rtc.dc.close(); } catch {} rtc.mic.getTracks().forEach((t) => t.stop()); rtc.pc.close(); rtc = null; }
   setVoice('offline');
 }

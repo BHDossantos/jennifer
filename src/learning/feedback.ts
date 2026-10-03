@@ -79,6 +79,13 @@ export class FeedbackStore {
     return r;
   }
 
+  purgeBefore(cutoff: Date): number {
+    const before = this.items.length;
+    this.items = this.items.filter((f) => f.at.getTime() >= cutoff.getTime());
+    if (this.items.length !== before) this.changeListeners.forEach((l) => l());
+    return before - this.items.length;
+  }
+
   allRules(): ProposedRule[] {
     return [...this.rules.values()];
   }

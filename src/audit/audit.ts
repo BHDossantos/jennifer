@@ -29,6 +29,8 @@ export class AuditLog {
     const safe = JSON.parse(redactSecrets(JSON.stringify(detail))) as Record<string, unknown>;
     const ev: AuditEvent = { id: newId('aud'), at: this.clock.now(), actor, kind, subjectId, detail: safe };
     this.events.push(ev);
+    // Durable sinks keep the full history; the in-process view keeps the recent tail.
+    if (this.events.length > 5000) this.events.splice(0, this.events.length - 5000);
     for (const sink of this.sinks) sink(ev);
     return ev;
   }

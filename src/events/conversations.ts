@@ -53,20 +53,27 @@ export interface Conversation {
   revision: number;
 }
 
+export interface ConversationChange {
+  conversation?: Conversation;
+  message?: Message;
+  attachment?: Attachment;
+  purgedMessageIds?: string[];
+}
+
 export class ConversationStore {
   private conversations = new Map<string, Conversation>();
   private messages = new Map<string, Message>();
   private attachments = new Map<string, Attachment>();
-  private listeners: Array<(e: { conversation?: Conversation; message?: Message; attachment?: Attachment }) => void> = [];
+  private listeners: Array<(e: ConversationChange) => void> = [];
 
   constructor(private clock: Clock) {}
 
   /** Durable sinks receive every change (conversation, message, attachment). */
-  onChange(fn: (e: { conversation?: Conversation; message?: Message; attachment?: Attachment }) => void): void {
+  onChange(fn: (e: ConversationChange) => void): void {
     this.listeners.push(fn);
   }
 
-  private emit(e: { conversation?: Conversation; message?: Message; attachment?: Attachment }): void {
+  private emit(e: ConversationChange): void {
     for (const l of this.listeners) l(e);
   }
 
@@ -75,6 +82,27 @@ export class ConversationStore {
     for (const c of data.conversations) this.conversations.set(c.id, c);
     for (const m of data.messages) this.messages.set(m.id, m);
     for (const a of data.attachments) this.attachments.set(a.id, a);
+  }
+
+  /**
+   * Retention (spec §17): remove message bodies older than `cutoff`, except in
+   * conversations that still have work pending. Conversations stay as headers.
+   */
+  purgeMessagesBefore(cutoff: Date, keepConversationIds: Set<string>): string[] {
+    const purged: string[] = [];
+    for (const m of this.messages.values()) {
+      if (m.occurredAt.getTime() >= cutoff.getTime() || keepConversationIds.has(m.conversationId)) continue;
+      this.messages.delete(m.id);
+      const c = this.conversations.get(m.conversationId);
+      if (c) c.messageIds = c.messageIds.filter((id) => id !== m.id);
+      purged.push(m.id);
+    }
+    if (purged.length) this.emit({ purgedMessageIds: purged });
+    return purged;
+  }
+
+  findByThread(accountId: string, providerThreadId: string): Conversation | undefined {
+    return [...this.conversations.values()].find((c) => c.accountId === accountId && c.providerThreadId === providerThreadId);
   }
 
   upsertConversation(input: Omit<Conversation, 'id' | 'messageIds' | 'revision'> & { id?: string }): Conversation {

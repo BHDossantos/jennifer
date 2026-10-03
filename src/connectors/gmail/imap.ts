@@ -174,6 +174,19 @@ export class ImapMailbox {
     }
   }
 
+  /** New messages in the Sent folder since the cursor (Bruno's own replies from Gmail or his phone). */
+  async syncSent(cursor: SyncCursor | undefined): Promise<{ emails: SyncedEmail[]; cursor: SyncCursor }> {
+    const c = await this.open();
+    try {
+      const sent = (await c.list()).find((b) => b.specialUse === '\\Sent');
+      if (!sent) return { emails: [], cursor: cursor ?? { uidValidity: 'none', lastUid: 0 } };
+      const r = await this.sync(cursor, { client: c, mailbox: sent.path, resyncDays: 1 });
+      return { emails: r.emails, cursor: r.cursor };
+    } finally {
+      await c.logout().catch(() => {});
+    }
+  }
+
   /** Reconciliation: does the Sent folder contain our Message-ID? */
   async findSent(messageId: string): Promise<boolean> {
     const c = await this.open();

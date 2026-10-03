@@ -55,6 +55,9 @@ const LABELS: Record<string, string> = {
   save_note: 'Updating my notes',
   draft_email: 'Preparing a draft',
   propose_email: 'Preparing an email',
+  web_search: 'Searching the web',
+  read_web_page: 'Reading a web page',
+  search_ai_history: 'Looking through your ChatGPT and Claude history',
 };
 
 /** Outputs of these tools are Jennifer's own (status of her proposals); everything else is labeled untrusted. */
@@ -254,6 +257,11 @@ export class MissionService {
     if (m.sources.includes('calendar')) {
       fromRegistry('get_calendar');
       fromRegistry('find_free_slots');
+    }
+    if (m.sources.includes('web')) {
+      readCtx.scopes.add('web:read');
+      fromRegistry('web_search');
+      fromRegistry('read_web_page');
     }
     if (m.sources.includes('ai_history')) {
       readCtx.scopes.add('history:read');

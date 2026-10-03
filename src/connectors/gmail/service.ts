@@ -21,6 +21,8 @@ export interface GmailServiceDeps {
   onEmail: (email: InboundEmail) => Promise<void>;
   /** Hand-off for imported history: stored for context, never drafted for. */
   onHistory?: (email: InboundEmail) => Promise<void>;
+  /** Bruno's own sent mail (manual replies cancel Jennifer's pending ones). */
+  onSent?: (email: InboundEmail) => Promise<void>;
   /** Register the send connector with the action pipeline. */
   registerConnector: (c: GmailConnector) => void;
   space?: Space;
@@ -140,6 +142,7 @@ export class GmailService {
       cursors: new PgCursorStore(this.d.db, this.d.ownerId),
       clock: this.d.clock,
       onEmail: this.d.onEmail,
+      onSent: this.d.onSent,
       onSynced: () => {
         this.d.capabilities.recordSync(CONNECTOR);
         this.d.capabilities.markVerified(CONNECTOR, 'read', 'IMAP sync succeeded');

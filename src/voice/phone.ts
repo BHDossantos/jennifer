@@ -79,6 +79,8 @@ export interface PhoneDeps {
   transferTarget?: string;
   fetchImpl?: typeof fetch;
   openSideband?: (url: string, headers: Record<string, string>) => SidebandSocket;
+  /** Cost of a finished call (minutes) for the operating ledger. */
+  onCallEnded?: (minutes: number) => void;
   maxCallsPerDay?: number;
 }
 
@@ -116,6 +118,14 @@ export class PhoneService {
 
   private f(): typeof fetch {
     return this.d.fetchImpl ?? fetch;
+  }
+
+  /** Retention: drop call records (with their transcripts and messages) older than `cutoff`. */
+  async purgeBefore(cutoff: Date): Promise<number> {
+    const all = await this.log();
+    const keep = all.filter((c) => Date.parse(c.startedAt) >= cutoff.getTime());
+    if (keep.length !== all.length) await this.d.settings.set('call_log', keep);
+    return all.length - keep.length;
   }
 
   async log(): Promise<CallRecord[]> {
@@ -289,6 +299,7 @@ export class PhoneService {
     this.event(rec, 'Call ended');
     await this.save(rec);
     this.calls.delete(callId);
+    this.d.onCallEnded?.((Date.parse(rec.endedAt) - Date.parse(rec.startedAt)) / 60_000);
   }
 
   private async post(path: string, body: unknown): Promise<void> {

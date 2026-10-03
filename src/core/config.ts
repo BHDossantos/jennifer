@@ -30,6 +30,13 @@ const ConfigSchema = z.object({
   modelProvider: z.enum(['auto', 'openai', 'anthropic']).default('auto'),
   /** Bruno's own number for warm transfers from Jennifer's phone line (E.164). */
   transferNumber: z.string().regex(/^\+\d{8,15}$/).optional(),
+  /** Retention in days, configured separately per data class (spec §17). 0 = keep. */
+  retention: z.object({
+    messagesDays: z.coerce.number().int().min(0).default(365),
+    callsDays: z.coerce.number().int().min(0).default(90),
+    auditDays: z.coerce.number().int().min(0).default(730),
+    feedbackDays: z.coerce.number().int().min(0).default(365),
+  }),
   budgets: z.object({
     monthlyCeilingEur: z.coerce.number().default(1000),
     perTaskMaxEur: z.coerce.number().default(0.5),
@@ -58,6 +65,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     anthropic: { apiKey: env.ANTHROPIC_API_KEY || undefined, model: env.JENNIFER_CLAUDE_MODEL || undefined, effort: env.JENNIFER_CLAUDE_EFFORT || undefined },
     modelProvider: env.MODEL_PROVIDER || undefined,
     transferNumber: env.JENNIFER_TRANSFER_NUMBER || undefined,
+    retention: {
+      messagesDays: env.JENNIFER_RETAIN_MESSAGES_DAYS || undefined,
+      callsDays: env.JENNIFER_RETAIN_CALLS_DAYS || undefined,
+      auditDays: env.JENNIFER_RETAIN_AUDIT_DAYS || undefined,
+      feedbackDays: env.JENNIFER_RETAIN_FEEDBACK_DAYS || undefined,
+    },
     budgets: {
       monthlyCeilingEur: env.JENNIFER_MONTHLY_CEILING_EUR,
       perTaskMaxEur: env.JENNIFER_TASK_MAX_EUR,

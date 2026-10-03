@@ -26,7 +26,7 @@ export const MissionInputSchema = z.object({
   title: z.string().min(2).max(80),
   goal: z.string().min(5).max(2000),
   space: z.enum(SPACES).default('personal'),
-  sources: z.array(z.enum(['email', 'memory', 'calendar', 'brief', 'ai_history'])).min(1).default(['email', 'memory']),
+  sources: z.array(z.enum(['email', 'memory', 'calendar', 'brief', 'ai_history', 'web'])).min(1).default(['email', 'memory']),
   schedule: z
     .discriminatedUnion('kind', [
       z.object({ kind: z.literal('manual') }),
