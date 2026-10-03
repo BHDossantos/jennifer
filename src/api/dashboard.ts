@@ -103,8 +103,12 @@ const card = (a) => \`<div class="card"><strong>\${esc(a.type)}</strong> <span c
 const views = {
   async today() {
     const t = await api('/v1/today');
+    const ob = await api('/v1/onboarding').catch(() => ({ remaining: 0, steps: [] }));
+    const setup = ob.remaining ? \`<div class="card"><strong>Get started</strong> <span class="muted">· \${ob.remaining} step\${ob.remaining > 1 ? 's' : ''} left</span>
+      \${ob.steps.map((s) => \`<div class="\${s.done ? 'good' : s.optional ? 'muted' : ''}">\${s.done ? '✓' : '○'} \${s.tab && !s.done ? \`<a href="#" data-tab="\${s.tab}">\${esc(s.title)}</a>\` : esc(s.title)}</div>\`).join('')}</div>\` : '';
+    const todayCal = (t.brief.today || []).length ? '<div class="card"><strong>Today</strong>' + t.brief.today.map((e) => '<div>' + esc(e.time) + ' · ' + esc(e.title) + '</div>').join('') + '</div>' : '';
     const b = t.brief;
-    return \`<div class="card"><strong>Connector health</strong>\${b.connectorHealth.map(c => \`<div class="\${c.state === 'ok' ? 'good' : 'bad'}">\${esc(c.connector)}: \${esc(c.detail)}</div>\`).join('') || '<div class="muted">No accounts connected yet.</div>'}</div>
+    return setup + todayCal + \`<div class="card"><strong>Connector health</strong>\${b.connectorHealth.map(c => \`<div class="\${c.state === 'ok' ? 'good' : 'bad'}">\${esc(c.connector)}: \${esc(c.detail)}</div>\`).join('') || '<div class="muted">No accounts connected yet.</div>'}</div>
       <h2>Needs your decision</h2>\${t.awaitingDecision.map(card).join('') || '<p class="muted">Nothing waiting.</p>'}
       <h2>Completed</h2>\${b.completed.map(c => '<div class="card">' + esc(c.summary) + '</div>').join('') || '<p class="muted">Nothing completed in the last 24 hours.</p>'}
       <h2>Blocked</h2>\${b.failures.map(f => '<div class="card bad">' + esc(f.summary) + '<div class="muted">' + esc(f.recovery) + '</div></div>').join('') || '<p class="muted">No failures.</p>'}\`;

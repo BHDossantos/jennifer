@@ -180,6 +180,10 @@ export class IdentityService {
     };
   }
 
+  async hasPasskey(ownerId: string): Promise<boolean> {
+    return (await this.credentials(ownerId)).length > 0;
+  }
+
   async devices(ownerId: string) {
     return (await this.db.query('SELECT id, platform, os_version, last_seen_at, revoked_at FROM device WHERE owner_id = $1 ORDER BY last_seen_at DESC NULLS LAST', [ownerId])).rows;
   }

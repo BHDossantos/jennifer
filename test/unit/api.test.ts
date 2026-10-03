@@ -79,3 +79,16 @@ describe('dashboard', () => {
     expect(() => new Script(js)).not.toThrow();
   });
 });
+
+describe('onboarding and today', () => {
+  it('lists remaining setup steps and shows today in Rome time', async () => {
+    const { h, app } = setup();
+    const ob = (await app.inject({ method: 'GET', url: '/v1/onboarding', headers: { authorization: `Bearer ${OWNER}` } })).json();
+    expect(ob.steps.find((s: { id: string }) => s.id === 'gmail').done).toBe(true); // harness marks gmail connected
+    expect(ob.steps.find((s: { id: string }) => s.id === 'voice').done).toBe(false);
+    expect(ob.remaining).toBeGreaterThan(0);
+    const ev = h.j.calendar.buildEvent({ calendarId: 'primary', title: 'Studio', start: { date: '2026-10-26', time: '15:00', timeZone: 'Europe/Rome' }, durationMin: 60, attendees: [] });
+    await h.j.calendar.provider.upsert(ev);
+    expect(h.j.dailyBrief().today).toEqual([{ time: '15:00', title: 'Studio', location: undefined }]);
+  });
+});

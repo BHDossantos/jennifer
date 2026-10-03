@@ -111,6 +111,21 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     activity: j.agents.activityFeed().slice(-20),
   }));
   app.get('/v1/connections', anyone, async () => j.capabilities.screen());
+  /** First-run checklist: Bruno's remaining setup steps, with live status. */
+  app.get('/v1/onboarding', owner, async () => {
+    const cap = (id: string) => !!j.capabilities.get(id)?.connected;
+    const steps = [
+      { id: 'openai', title: 'Server has an OpenAI API key (voice, chat, missions)', done: !!j.config.openai.apiKey },
+      { id: 'passkey', title: 'Sign in with Face ID (passkey) on your iPhone', done: opts.identity ? await opts.identity.hasPasskey(j.ownerId) : false },
+      { id: 'voice', title: "Choose Jennifer's voice", done: !!(await j.settings.get('voice')), tab: 'voice' },
+      { id: 'gmail', title: 'Connect your Gmail (app password)', done: cap('gmail'), tab: 'connections' },
+      { id: 'calendar', title: 'Connect your calendar (iCloud and/or Google)', done: cap('icloud_calendar') || cap('google_calendar_ics'), tab: 'connections' },
+      { id: 'notifications', title: 'Turn on notifications', done: (await j.notifications.subscriptions()).length > 0, tab: 'settings' },
+      { id: 'mission', title: 'Start your first mission', done: (await j.missions.list()).some((m) => m.status !== 'archived'), tab: 'missions' },
+      { id: 'phone', title: 'Optional: phone number for calls', done: j.phone.configured, optional: true },
+    ];
+    return { steps, remaining: steps.filter((s) => !s.done && !s.optional).length };
+  });
   app.get('/v1/setup', owner, async () => ({
     inventory: j.inventory,
     blockers: j.inventory ? inventoryBlockers(j.inventory) : [{ area: 'setup', missing: 'config/inventory.json', why: 'No inventory loaded', owner: 'engineering' }],

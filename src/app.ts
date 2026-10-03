@@ -108,7 +108,21 @@ export function createJennifer(opts: JenniferOptions = {}) {
 
   const tools = new ToolRegistry(() => clock.now().getTime());
   const dailyBrief = (urgentMessages: Array<{ id: string; summary: string }> = []) =>
-    buildDailyBrief({ clock, timeZone: config.homeTimeZone, capabilities, actions, deadLetters, memory, ownerId, urgentMessages });
+    buildDailyBrief({
+      clock,
+      timeZone: config.homeTimeZone,
+      capabilities,
+      actions,
+      deadLetters,
+      memory,
+      ownerId,
+      urgentMessages,
+      calendarToday: (() => {
+        const endOfDay = DateTime.fromJSDate(clock.now()).setZone(config.homeTimeZone).endOf('day');
+        const hours = Math.max(1, Math.ceil(endOfDay.diff(DateTime.fromJSDate(clock.now()), 'hours').hours));
+        return calendar.upcoming(hours).filter((e) => DateTime.fromISO(e.startUtc) <= endOfDay);
+      })(),
+    });
   registerStandardTools(tools, { ownerId, conversations, memory, calendar, actions, dailyBrief });
   const settings = opts.settings ?? new MemorySettings();
   const voice = new RealtimeVoiceService({ apiKey: config.openai.apiKey, baseUrl: config.openai.baseUrl, model: config.openai.realtimeModel, fetchImpl: opts.fetchImpl });

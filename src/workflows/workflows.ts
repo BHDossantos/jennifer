@@ -141,6 +141,8 @@ export interface DailyBrief {
   completed: Array<{ id: string; summary: string }>;
   failures: Array<{ id: string; summary: string; recovery: string }>;
   connectorHealth: Array<{ connector: string; state: 'ok' | 'disconnected' | 'stale'; detail: string }>;
+  /** Rest of today's calendar in the home time zone (empty when no calendar is connected). */
+  today: Array<{ time: string; title: string; location?: string }>;
 }
 
 /**
@@ -158,6 +160,7 @@ export function buildDailyBrief(deps: {
   ownerId: string;
   urgentMessages: Array<{ id: string; summary: string }>;
   staleAfterHours?: number;
+  calendarToday?: Array<{ startUtc: string; title: string; location?: string; busy?: boolean }>;
 }): DailyBrief {
   const now = deps.clock.now();
   const staleMs = (deps.staleAfterHours ?? 6) * 3600_000;
@@ -184,5 +187,6 @@ export function buildDailyBrief(deps: {
       .map((a) => ({ id: a.id, summary: `${a.type} (${a.receipt!.evidence})` })),
     failures: deps.deadLetters.list().map((d) => ({ id: d.subjectId, summary: `${d.kind}: ${d.error}`, recovery: d.recoveryAction })),
     connectorHealth,
+    today: (deps.calendarToday ?? []).map((e) => ({ time: DateTime.fromISO(e.startUtc, { zone: 'utc' }).setZone(deps.timeZone).toFormat('HH:mm'), title: e.title, location: e.location })),
   };
 }
