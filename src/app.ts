@@ -150,6 +150,18 @@ export function createJennifer(opts: JenniferOptions = {}) {
       }),
     );
   });
+  // Bruno's explicit approval of a send verifies its recipients for future standing rules.
+  // Sends authorized by a standing rule never add contacts, so rules cannot widen themselves.
+  actions.onTransition((i) => {
+    if (i.type !== 'send_message' || i.state !== 'provider_accepted' || !i.approvalId) return;
+    const p = i.payload as { to?: string[]; cc?: string[] };
+    const kind = i.channel === 'email' ? 'email' : i.channel === 'whatsapp' ? 'whatsapp' : 'phone';
+    const replyTo = i.conversationId ? conversations.latestInbound(i.conversationId) : undefined;
+    for (const addr of [...(p.to ?? []), ...(p.cc ?? [])]) {
+      const name = replyTo && replyTo.from.address.toLowerCase() === addr.toLowerCase() ? replyTo.from.displayName : undefined;
+      contacts.learnFromApproval(ownerId, kind, addr, i.space, name);
+    }
+  });
   capabilities.onDisconnected((id, error) =>
     quietly(notifications.notify({ kind: 'problem', title: 'Jennifer: an account disconnected', body: `${id} needs reconnecting. I can't check it until then.`, detail: `${id}: ${error}`, url: '/?tab=connections', urgent: true, dedupKey: `disconnected:${id}` })),
   );

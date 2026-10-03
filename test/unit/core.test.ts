@@ -295,3 +295,25 @@ describe('learning (§13)', () => {
     expect(reg.live()!.version).toBe('v1');
   });
 });
+
+describe('contacts learned from approvals', () => {
+  it('an approved send verifies the recipient; rule-authorized sends never add contacts', async () => {
+    const h = makeHarness();
+    const out = await h.j.inbound.handle(h.email({ from: { displayName: 'Laura Neri', address: 'laura@venue.test' }, body: 'Can you confirm the gig?' }), { autoDraft: true });
+    const a = h.j.actions.get(out.proposedActionId!);
+    expect(a.decisionReasons.join(' ')).toMatch(/not a known contact/);
+    h.j.actions.approve(a.id, 'bruno', { revision: a.revision, payloadHash: a.payloadHash });
+    await h.j.actions.execute(a.id);
+    const laura = h.j.contacts.findByIdentity('bruno', 'email', 'laura@venue.test')!;
+    expect(laura).toMatchObject({ displayName: 'Laura Neri', spaces: ['music'] });
+    expect(laura.identities[0]!.verified).toBe(true);
+
+    // A standing rule for the music space now covers her; its sends don't create new contacts.
+    h.j.authority.grant({ principal: 'bruno', action: 'send_message', mode: 'execute', scope: { spaces: ['music'], contactIds: [laura.id] } });
+    const before = h.j.contacts.list('bruno').length;
+    const r = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['laura@venue.test'], body: 'Confirmed.' }), proposedBy: 'jennifer' });
+    expect(r.state).toBe('ready');
+    await h.j.actions.execute(r.id);
+    expect(h.j.contacts.list('bruno').length).toBe(before);
+  });
+});

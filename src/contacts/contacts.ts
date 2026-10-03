@@ -67,6 +67,24 @@ export class ContactDirectory {
     return [...this.contacts.values()].filter((c) => c.ownerId === ownerId);
   }
 
+  /**
+   * Bruno approved a message to this address: create the contact or mark the
+   * identity verified (his approval is the verification). Adds the space.
+   */
+  learnFromApproval(ownerId: string, kind: IdentityKind, value: string, space: Space, displayName?: string): Contact {
+    const v = normalizeIdentity(kind, value);
+    const existing = this.findByIdentity(ownerId, kind, v);
+    if (existing) {
+      const ident = existing.identities.find((i) => i.kind === kind && i.value === v)!;
+      ident.verified = true;
+      ident.source = ident.source.includes('bruno-approved') ? ident.source : `${ident.source}+bruno-approved`;
+      if (!existing.spaces.includes(space)) existing.spaces.push(space);
+      this.listeners.forEach((l) => l(existing));
+      return existing;
+    }
+    return this.add({ ownerId, displayName: displayName || v, spaces: [space], identities: [{ kind, value: v, verified: true, source: 'bruno-approved' }], relationship: 'unknown' });
+  }
+
   findByIdentity(ownerId: string, kind: IdentityKind, value: string): Contact | undefined {
     const v = normalizeIdentity(kind, value);
     return this.list(ownerId).find((c) => c.identities.some((i) => i.kind === kind && i.value === v));
