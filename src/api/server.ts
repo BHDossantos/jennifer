@@ -221,7 +221,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
       .parse(req.body);
     const email = { ...b, connectorId };
     // Commit before acknowledging; process asynchronously.
-    const { event, duplicate } = j.inbound.receive(email);
+    const { event, duplicate } = await j.inbound.receive(email);
     if (!duplicate) setImmediate(() => void j.inbound.process(event, email, { autoDraft: true }).catch((e) => app.log.error(redactSecrets(String(e)))));
     return reply.code(202).send({ eventId: event.eventId, duplicate });
   });

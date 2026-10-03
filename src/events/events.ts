@@ -50,12 +50,20 @@ export function signWebhook(secret: string, timestamp: string, body: string): st
   return createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
 }
 
+/** Durable event log port: in-memory for unit tests, Postgres in production. */
+export interface EventLog {
+  ingest(input: NewEvent): Promise<{ event: EventEnvelope; duplicate: boolean }>;
+  claim(max?: number): Promise<EventEnvelope[]>;
+  markProcessed(eventId: string): Promise<void>;
+  requeue(eventId: string): Promise<void>;
+}
+
 /**
- * Durable event store. The unique (accountId, providerEventId) constraint
+ * In-memory event store. The unique (accountId, providerEventId) constraint
  * deduplicates redelivered webhooks; the event is committed before the
  * receipt is acknowledged, then processed asynchronously.
  */
-export class EventStore {
+export class EventStore implements EventLog {
   private events = new Map<string, EventEnvelope>();
   private byProviderKey = new Map<string, string>();
   private pending: string[] = [];
@@ -63,7 +71,7 @@ export class EventStore {
 
   constructor(private clock: Clock) {}
 
-  ingest(input: NewEvent): { event: EventEnvelope; duplicate: boolean } {
+  async ingest(input: NewEvent): Promise<{ event: EventEnvelope; duplicate: boolean }> {
     const key = `${input.accountId}:${input.providerEventId}`;
     const existingId = this.byProviderKey.get(key);
     if (existingId) return { event: this.events.get(existingId)!, duplicate: true };
@@ -75,17 +83,17 @@ export class EventStore {
   }
 
   /** Claim the next unprocessed events (worker side). */
-  claim(max = 50): EventEnvelope[] {
+  async claim(max = 50): Promise<EventEnvelope[]> {
     const ids = this.pending.splice(0, max);
     return ids.map((id) => this.events.get(id)!);
   }
 
-  markProcessed(eventId: string): void {
+  async markProcessed(eventId: string): Promise<void> {
     this.processed.add(eventId);
   }
 
   /** Put an event back for retry after a transient processing failure. */
-  requeue(eventId: string): void {
+  async requeue(eventId: string): Promise<void> {
     if (!this.processed.has(eventId)) this.pending.push(eventId);
   }
 

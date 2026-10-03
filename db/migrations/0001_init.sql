@@ -191,7 +191,7 @@ CREATE TABLE action_intent (
   channel                       text NOT NULL,
   connector_id                  text NOT NULL,
   account_id                    text NOT NULL,
-  conversation_id               text REFERENCES conversation(id) ON DELETE SET NULL,
+  conversation_id               text,                 -- may reference a provider-only thread
   based_on_conversation_revision integer,
   workflow_id                   text,
   task_id                       text REFERENCES task(id) ON DELETE SET NULL,

@@ -16,12 +16,20 @@ export interface AuditEvent {
  */
 export class AuditLog {
   private events: AuditEvent[] = [];
+  private sinks: Array<(ev: AuditEvent) => void> = [];
+
+  /** Durable sinks (Postgres, log export) receive every event after redaction. */
+  addSink(fn: (ev: AuditEvent) => void): void {
+    this.sinks.push(fn);
+  }
+
   constructor(private clock: Clock) {}
 
   record(actor: string, kind: string, subjectId: string | undefined, detail: Record<string, unknown> = {}): AuditEvent {
     const safe = JSON.parse(redactSecrets(JSON.stringify(detail))) as Record<string, unknown>;
     const ev: AuditEvent = { id: newId('aud'), at: this.clock.now(), actor, kind, subjectId, detail: safe };
     this.events.push(ev);
+    for (const sink of this.sinks) sink(ev);
     return ev;
   }
 

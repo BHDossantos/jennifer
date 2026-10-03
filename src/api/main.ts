@@ -17,7 +17,7 @@ const app = buildServer(j, {
 
 // Durable-worker stand-in: drain due actions and expire memory periodically.
 setInterval(() => {
-  void j.actions.runDue();
+  void j.actions.recoverUnknown().then(() => j.actions.runDue());
   j.memory.expireDue();
 }, 5000).unref();
 

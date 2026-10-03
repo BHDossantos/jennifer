@@ -36,6 +36,11 @@ export type RecipientResolution =
 
 export class ContactDirectory {
   private contacts = new Map<string, Contact>();
+  private listeners: Array<(c: Contact) => void> = [];
+
+  onChange(fn: (c: Contact) => void): void {
+    this.listeners.push(fn);
+  }
 
   add(input: Omit<Contact, 'id'>): Contact {
     const c: Contact = {
@@ -44,7 +49,12 @@ export class ContactDirectory {
       identities: input.identities.map((i) => ({ ...i, value: normalizeIdentity(i.kind, i.value) })),
     };
     this.contacts.set(c.id, c);
+    this.listeners.forEach((l) => l(c));
     return c;
+  }
+
+  restore(contacts: Contact[]): void {
+    for (const c of contacts) this.contacts.set(c.id, c);
   }
 
   get(id: string): Contact {
@@ -99,6 +109,7 @@ export class ContactDirectory {
     for (const i of drop.identities) if (!keep.identities.some((k) => k.kind === i.kind && k.value === i.value)) keep.identities.push(i);
     keep.spaces = [...new Set([...keep.spaces, ...drop.spaces])];
     this.contacts.delete(dropId);
+    this.listeners.forEach((l) => l(keep));
     return keep;
   }
 }

@@ -8,11 +8,11 @@ import { AuthorityRegistry } from './policy/authority.js';
 import { Controls, SuppressionList } from './policy/controls.js';
 import { ContactDirectory } from './contacts/contacts.js';
 import { ConversationStore } from './events/conversations.js';
-import { DeadLetterQueue, EventStore } from './events/events.js';
+import { DeadLetterQueue, EventStore, type EventLog } from './events/events.js';
 import { CapabilityRegistry } from './connectors/capabilities.js';
 import type { MessagingConnector } from './connectors/connector.js';
 import { FakeEmailProvider } from './connectors/fakeEmail.js';
-import { ActionService } from './actions/service.js';
+import { ActionService, type ActionDurability } from './actions/service.js';
 import { SendMessageHandler } from './actions/sendMessage.js';
 import { CalendarActionHandler, CalendarService, FakeCalendarProvider } from './calendar/calendar.js';
 import { MemoryStore } from './memory/memory.js';
@@ -23,6 +23,9 @@ import { FeedbackStore, ModelRegistry } from './learning/feedback.js';
 import { ToolRegistry } from './tools/registry.js';
 import { InboundProcessor } from './assistant/inbound.js';
 import { DateTime } from 'luxon';
+import type { Db } from './db/db.js';
+import { migrate } from './db/migrate.js';
+import { PgEventLog, PgStateStore, ensureOwner } from './db/pgStore.js';
 import { readFileSync, existsSync } from 'node:fs';
 import { InventorySchema, type Inventory } from './setup/inventory.js';
 
@@ -35,6 +38,9 @@ export interface JenniferOptions {
   random?: () => number;
   /** Path to the account/device inventory JSON; defaults to config/inventory.json when present. */
   inventoryPath?: string | null;
+  /** Durable event log (Postgres in production); defaults to in-memory. */
+  events?: EventLog;
+  durability?: ActionDurability;
 }
 
 /**
@@ -54,7 +60,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
   const suppressions = new SuppressionList(clock, audit);
   const contacts = new ContactDirectory();
   const conversations = new ConversationStore(clock);
-  const events = new EventStore(clock);
+  const events: EventLog = opts.events ?? new EventStore(clock);
   const deadLetters = new DeadLetterQueue(clock);
   const capabilities = new CapabilityRegistry(clock);
   const memory = new MemoryStore(clock);
@@ -68,7 +74,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
   const emailConnectors = new Map<string, MessagingConnector>();
   for (const c of opts.emailConnectors ?? [new FakeEmailProvider('gmail')]) emailConnectors.set(c.id, c);
 
-  const actions = new ActionService({ clock, audit, authority, controls, suppressions, conversations, deadLetters, random: opts.random });
+  const actions = new ActionService({ clock, audit, authority, controls, suppressions, conversations, deadLetters, random: opts.random, durability: opts.durability });
   actions.register(new SendMessageHandler(contacts, conversations, emailConnectors, capabilities));
   actions.register(new CalendarActionHandler('create_event', calendar, contacts, capabilities));
   actions.register(new CalendarActionHandler('modify_event', calendar, contacts, capabilities));
@@ -226,4 +232,28 @@ function registerStandardTools(
     retry: { maxAttempts: 1, retryOn: 'never' },
     run: async (i) => ({ recorded: true, summary: i.summary }),
   });
+}
+
+/**
+ * Durable composition: Postgres (or PGlite) for events, audit, authority
+ * rules, contacts and the action outbox. Runs migrations, rehydrates state
+ * and recovers interrupted sends as 'unknown' for reconciliation.
+ */
+export async function createDurableJennifer(opts: JenniferOptions & { db: Db }) {
+  const clock = opts.clock ?? systemClock;
+  await migrate(opts.db);
+  const ownerId = opts.config?.ownerId ?? loadConfig({ ...process.env, JENNIFER_ENV: process.env.JENNIFER_ENV ?? 'development' }).ownerId;
+  await ensureOwner(opts.db, ownerId);
+  const store = new PgStateStore(opts.db, ownerId);
+  const j = createJennifer({ ...opts, clock, events: new PgEventLog(opts.db, clock), durability: store });
+
+  j.authority.restore(await store.loadRules());
+  j.contacts.restore(await store.loadContacts());
+  const { intents, approvals } = await store.loadActions();
+  j.actions.restore(intents, approvals);
+
+  j.audit.addSink((ev) => store.audit(ev));
+  j.authority.onChange((_v, ruleId) => store.rule(j.authority.get(ruleId)));
+  j.contacts.onChange((c) => store.contact(c));
+  return Object.assign(j, { db: opts.db, store });
 }

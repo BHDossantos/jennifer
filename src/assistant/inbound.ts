@@ -5,7 +5,7 @@ import type { Config } from '../core/config.js';
 import type { AuditLog } from '../audit/audit.js';
 import { assessSender, type ContactDirectory } from '../contacts/contacts.js';
 import { classifyAutomatedEmail, type ConversationStore, type Message } from '../events/conversations.js';
-import type { EventStore, EventEnvelope } from '../events/events.js';
+import type { EventLog, EventEnvelope } from '../events/events.js';
 import type { ActionService } from '../actions/service.js';
 import type { SendMessagePayload } from '../actions/sendMessage.js';
 import type { MemoryStore } from '../memory/memory.js';
@@ -67,7 +67,7 @@ export class InboundProcessor {
       clock: Clock;
       config: Config;
       ownerId: string;
-      events: EventStore;
+      events: EventLog;
       conversations: ConversationStore;
       contacts: ContactDirectory;
       actions: ActionService;
@@ -80,7 +80,7 @@ export class InboundProcessor {
   ) {}
 
   /** Commit the event first (webhook acknowledged after this returns), then process. */
-  receive(email: InboundEmail): { event: EventEnvelope; duplicate: boolean } {
+  receive(email: InboundEmail): Promise<{ event: EventEnvelope; duplicate: boolean }> {
     return this.d.events.ingest({
       providerEventId: email.providerMessageId,
       ownerId: this.d.ownerId,
@@ -95,7 +95,7 @@ export class InboundProcessor {
   }
 
   async handle(email: InboundEmail, opts: { autoDraft?: boolean } = {}): Promise<InboundOutcome> {
-    const { event, duplicate } = this.receive(email);
+    const { event, duplicate } = await this.receive(email);
     if (duplicate) return { event, duplicate, canceledActionIds: [], flags: [], skippedReason: 'duplicate delivery' };
     return this.process(event, email, opts);
   }
@@ -138,7 +138,7 @@ export class InboundProcessor {
     if (flags.length) this.d.audit.record('system', 'inbound.flagged', message.id, { flags });
 
     const canceledActionIds = this.d.actions.onInboundMessage(conv.id);
-    this.d.events.markProcessed(event.eventId);
+    await this.d.events.markProcessed(event.eventId);
 
     if (isStopRequest(email.body)) {
       this.d.suppressions.add({

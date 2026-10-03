@@ -74,6 +74,14 @@ export class AuthorityRegistry {
     private audit: AuditLog,
   ) {}
 
+  /** Rehydrate persisted rules after a restart. */
+  restore(rules: AuthorityRule[]): void {
+    for (const r of rules) {
+      this.rules.set(r.id, r);
+      this.version = Math.max(this.version, r.policyVersion);
+    }
+  }
+
   get policyVersion(): number {
     return this.version;
   }

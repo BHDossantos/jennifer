@@ -30,6 +30,13 @@ export interface ActionServiceDeps {
   maxAttempts?: number;
   approvalTtlMs?: number;
   random?: () => number;
+  /** Write-ahead durability: records state changes; flushed before any connector call. */
+  durability?: ActionDurability;
+}
+
+export interface ActionDurability {
+  record(intent: ActionIntent, approval?: Approval): void;
+  flush(): Promise<void>;
 }
 
 /**
@@ -52,6 +59,23 @@ export class ActionService {
     d.authority.onChange(() => this.revalidateQueued('policy changed'));
     d.suppressions.onAdd((rule) => this.cancelSuppressed(rule));
     d.controls.onStop((kind, id) => this.cancelForStop(kind, id));
+  }
+
+  /**
+   * Rehydrate after a restart. An action that was 'executing' when the
+   * process died may or may not have reached the provider: it becomes
+   * 'unknown' and is reconciled before any retry.
+   */
+  restore(intents: ActionIntent[], approvals: Approval[]): void {
+    for (const a of approvals) this.approvals.set(a.id, a);
+    for (const i of intents) {
+      if (i.state === 'executing') {
+        i.history.push({ at: this.d.clock.now(), from: 'executing', to: 'unknown', reason: 'recovered after restart', actor: 'system' });
+        i.state = 'unknown';
+        i.stateReason = 'recovered after restart';
+      }
+      this.intents.set(i.id, i);
+    }
   }
 
   register(handler: ActionHandler<any>): void {
@@ -112,7 +136,11 @@ export class ActionService {
     intent.payloadHash = payloadHash(payload);
     intent.approvalId = undefined;
     intent.authorityRuleId = undefined;
-    for (const a of this.approvals.values()) if (a.intentId === id && !a.invalidatedAt) a.invalidatedAt = this.d.clock.now();
+    for (const a of this.approvals.values())
+      if (a.intentId === id && !a.invalidatedAt) {
+        a.invalidatedAt = this.d.clock.now();
+        this.d.durability?.record(intent as ActionIntent, a);
+      }
     this.transition(intent as ActionIntent, 'proposed', actor, `edited to revision ${intent.revision}`);
     this.d.audit.record(actor, 'action.edited', id, { revision: intent.revision, payloadHash: intent.payloadHash });
     this.route(intent as ActionIntent);
@@ -144,6 +172,7 @@ export class ActionService {
       stepUpVerified: !!opts.stepUpVerified,
     };
     this.approvals.set(approval.id, approval);
+    this.d.durability?.record(intent, approval);
     intent.approvalId = approval.id;
     this.transition(intent, 'ready', approver, 'approved');
     this.d.audit.record(approver, 'action.approved', id, { approvalId: approval.id, revision: approval.revision, payloadHash: approval.payloadHash });
@@ -188,6 +217,13 @@ export class ActionService {
       .filter((i) => i.type === 'send_message' && PENDING_STATES.has(i.state))
       .filter((i) => this.cancel(i.id, 'system', 'Bruno replied manually'))
       .map((i) => i.id);
+  }
+
+  /** Reconcile every action whose outcome is unknown (timeouts, crash recovery). */
+  async recoverUnknown(): Promise<ActionIntent[]> {
+    const out: ActionIntent[] = [];
+    for (const i of this.list({ state: 'unknown' })) out.push(await this.execute(i.id));
+    return out;
   }
 
   /** Execute every ready action whose retry time has arrived. */
@@ -252,6 +288,9 @@ export class ActionService {
 
       this.transition(intent, 'executing', 'system', auth.ruleId ? `standing rule ${auth.ruleId}` : `approval ${intent.approvalId}`);
       intent.attempts += 1;
+      // The 'executing' record must be durable before the provider sees the request,
+      // so a crash mid-send is recovered as 'unknown' and reconciled, never resent blindly.
+      await this.d.durability?.flush();
       let result;
       try {
         result = await handler.perform(intent);
@@ -316,7 +355,10 @@ export class ActionService {
   private consumeApproval(intent: ActionIntent): void {
     if (intent.approvalId) {
       const a = this.approvals.get(intent.approvalId);
-      if (a) a.consumedAt = this.d.clock.now();
+      if (a) {
+        a.consumedAt = this.d.clock.now();
+        this.d.durability?.record(intent, a);
+      }
     }
   }
 
@@ -418,5 +460,6 @@ export class ActionService {
     intent.state = to;
     intent.stateReason = reason;
     intent.history.push({ at: this.d.clock.now(), from, to, reason, actor });
+    this.d.durability?.record(intent);
   }
 }
