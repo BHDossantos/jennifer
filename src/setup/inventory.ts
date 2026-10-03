@@ -31,6 +31,7 @@ export const InventorySchema = z.object({
   messaging: z.array(z.object({ service: z.string(), accountType: z.enum(['personal', 'business']), handle: z.string().or(Unknown) })),
   social: z.array(z.object({ network: z.string(), handle: z.string(), accountType: z.enum(['personal', 'business', 'creator']), space: z.enum(SPACES) })),
   desktops: z.array(z.object({ os: z.string(), use: z.string() })),
+  businesses: z.array(z.object({ name: z.string(), space: z.enum(SPACES) })).default([]),
   existingAssistantCode: z.array(z.object({ repo: z.string(), assessment: z.string(), reuse: z.string() })),
 });
 export type Inventory = z.infer<typeof InventorySchema>;

@@ -3,8 +3,16 @@
   "owner": {
     "name": "Bruno D",
     "homeTimeZone": "Europe/Rome",
-    "countries": ["US", "IT"],
-    "languages": ["en", "pt-BR", "es", "it"]
+    "countries": [
+      "US",
+      "IT"
+    ],
+    "languages": [
+      "en",
+      "pt-BR",
+      "es",
+      "it"
+    ]
   },
   "phone": {
     "model": "iPhone 17 Pro Max",
@@ -25,9 +33,43 @@
     {
       "repo": "BHDossantos/Bruno-AI-Workforce",
       "assessment": "See docs/WORKFORCE_ASSESSMENT.md",
-      "reuse": "pending"
+      "reuse": "Observe/draft connector over its REST API + signed webhooks; port telephony and call-outcome logic; reuse GCP deploy pattern. Never send through it."
     },
-    { "repo": "BHDossantos/Jarvis", "assessment": "Empty: only a placeholder CI workflow", "reuse": "none" },
-    { "repo": "BHDossantos/Jarvis-ML", "assessment": "Empty repository", "reuse": "none" }
+    {
+      "repo": "BHDossantos/Jarvis",
+      "assessment": "Empty: only a placeholder CI workflow",
+      "reuse": "none"
+    },
+    {
+      "repo": "BHDossantos/Jarvis-ML",
+      "assessment": "Empty repository",
+      "reuse": "none"
+    }
+  ],
+  "businesses": [
+    {
+      "name": "Thrust Insurance",
+      "space": "insurance"
+    },
+    {
+      "name": "B&B Global Services",
+      "space": "technology"
+    },
+    {
+      "name": "SavoryMind",
+      "space": "restaurant"
+    },
+    {
+      "name": "Music",
+      "space": "music"
+    },
+    {
+      "name": "Esposito Dossantos Foundation",
+      "space": "nonprofit"
+    },
+    {
+      "name": "Personal",
+      "space": "personal"
+    }
   ]
 }

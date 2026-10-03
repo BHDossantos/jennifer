@@ -146,6 +146,22 @@ export function defaultConnectorCatalog(): ConnectorDescriptor[] {
       }),
       connected: false,
     },
+    {
+      id: 'workforce',
+      provider: 'Bruno AI Workforce (REST API + signed webhooks)',
+      channel: 'app',
+      accountType: 'Dedicated read-only viewer service user',
+      docsUrl: 'docs/WORKFORCE_ASSESSMENT.md',
+      requiredScopes: ['viewer'],
+      appReview: 'Fix unsigned carrier webhooks and plaintext runtime secrets in Workforce before connecting.',
+      capabilities: caps({
+        read: ['conditional', 'Leads, conversation outcomes, jobs, music drafts, CEO brief'],
+        webhook: ['conditional', 'lead.replied, client.* (HMAC X-Bruno-Signature)'],
+        search: 'conditional',
+        send: ['unavailable', 'By design: Jennifer never sends through Workforce'],
+      }),
+      connected: false,
+    },
     ...['instagram', 'facebook', 'linkedin', 'x', 'telegram'].map<ConnectorDescriptor>((id) => ({
       id,
       provider: id,
