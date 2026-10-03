@@ -98,6 +98,14 @@ Node ≥ 20. Copy `.env.example` to `.env` for configuration. Set `JENNIFER_SEED
 | `db/migrations/` | §15 | PostgreSQL + pgvector schema for all required entities, with row-level security |
 | `deploy/terraform/`, `Dockerfile` | §3 | Staging and production on Cloud Run + Cloud SQL, KMS, Secret Manager, keyless deploys |
 | `test/acceptance/` | §20 | Scenarios A–K |
+| `test/evals/` | §20 | 204 curated scenarios (adversarial, spoofing, authority, money limits, suppression, claims, cross-project, Rome time, idempotency) in EN/IT/PT-BR/ES; `npm run eval` writes `evals/report.json` |
+| `src/core/anthropic.ts` | §3, §11 | Claude (Anthropic API) as an alternative brain for chat, missions, drafts and briefs |
+| `src/memory/aiHistory.ts` | §11 | ChatGPT and Claude history bridge: exports (incl. Claude projects), Send-to-Jennifer clips, search, memory suggestions for review |
+| `src/connectors/sms/` | §7 | SMS on Jennifer's number (Twilio/SignalWire), signed webhooks, reconciliation, urgent SMS fallback |
+| `src/voice/chained.ts` | §8 | Push-to-talk: transcription → Jennifer → speech, with pronunciations and per-stage latency |
+| `src/research/web.ts` | §12 | Web search (provider-hosted) and safe page reading for chat, missions and voice |
+| `src/ops/` | §17, §18 | Cost ledger with monthly ceiling, metrics, retention job |
+| `docs/API.md`, `docs/SPEC_COVERAGE.md` | §15, §21 | Endpoint reference; section-by-section coverage of the spec with honest status |
 
 ## Architecture notes
 
