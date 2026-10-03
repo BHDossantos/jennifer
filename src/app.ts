@@ -24,6 +24,8 @@ import { ToolRegistry } from './tools/registry.js';
 import { InboundProcessor } from './assistant/inbound.js';
 import { DateTime } from 'luxon';
 import type { Db } from './db/db.js';
+import { MemorySettings, PgSettings, type SettingsStore } from './core/settings.js';
+import { RealtimeVoiceService } from './voice/realtime.js';
 import { migrate } from './db/migrate.js';
 import { PgEventLog, PgStateStore, ensureOwner } from './db/pgStore.js';
 import { readFileSync, existsSync } from 'node:fs';
@@ -43,6 +45,9 @@ export interface JenniferOptions {
   durability?: ActionDurability;
   /** Sandbox mode for first live tests: only these recipients can receive sends. */
   sandboxRecipients?: string[];
+  settings?: SettingsStore;
+  /** Inject a fetch for OpenAI calls (tests). */
+  fetchImpl?: typeof fetch;
 }
 
 /**
@@ -90,7 +95,11 @@ export function createJennifer(opts: JenniferOptions = {}) {
   const inbound = new InboundProcessor({ clock, config, ownerId, events, conversations, contacts, actions, memory, suppressions, feedback, audit, model });
 
   const tools = new ToolRegistry(() => clock.now().getTime());
-  registerStandardTools(tools, { ownerId, conversations, memory, calendar, actions });
+  const dailyBrief = (urgentMessages: Array<{ id: string; summary: string }> = []) =>
+    buildDailyBrief({ clock, timeZone: config.homeTimeZone, capabilities, actions, deadLetters, memory, ownerId, urgentMessages });
+  registerStandardTools(tools, { ownerId, conversations, memory, calendar, actions, dailyBrief });
+  const settings = opts.settings ?? new MemorySettings();
+  const voice = new RealtimeVoiceService({ apiKey: config.openai.apiKey, baseUrl: config.openai.baseUrl, model: config.openai.realtimeModel, fetchImpl: opts.fetchImpl });
 
   const inventoryPath = opts.inventoryPath === undefined ? 'config/inventory.json' : opts.inventoryPath;
   const inventory: Inventory | undefined = inventoryPath && existsSync(inventoryPath) ? InventorySchema.parse(JSON.parse(readFileSync(inventoryPath, 'utf8'))) : undefined;
@@ -121,8 +130,9 @@ export function createJennifer(opts: JenniferOptions = {}) {
     inbound,
     tools,
     model,
-    dailyBrief: (urgentMessages: Array<{ id: string; summary: string }> = []) =>
-      buildDailyBrief({ clock, timeZone: config.homeTimeZone, capabilities, actions, deadLetters, memory, ownerId, urgentMessages }),
+    settings,
+    voice,
+    dailyBrief,
   };
 }
 
@@ -133,8 +143,34 @@ const Space = z.enum(SPACES);
 /** The only tools a model can call. External writes return proposals. */
 function registerStandardTools(
   tools: ToolRegistry,
-  d: { ownerId: string; conversations: ConversationStore; memory: MemoryStore; calendar: CalendarService; actions: ActionService },
+  d: { ownerId: string; conversations: ConversationStore; memory: MemoryStore; calendar: CalendarService; actions: ActionService; dailyBrief: () => ReturnType<typeof buildDailyBrief> },
 ): void {
+  tools.register({
+    name: 'get_today_brief',
+    description: "Bruno's daily brief: decisions waiting, urgent messages, deadlines, completed work, problems and account health.",
+    input: z.object({}),
+    requiredScopes: ['brief:read'],
+    sideEffect: 'read',
+    timeoutMs: 3000,
+    rateLimitPerMinute: 30,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async () => d.dailyBrief(),
+  });
+  tools.register({
+    name: 'list_pending_decisions',
+    description: 'Actions waiting for Bruno to approve or decline, with the exact recipients and text.',
+    input: z.object({}),
+    requiredScopes: ['actions:read'],
+    sideEffect: 'read',
+    timeoutMs: 3000,
+    rateLimitPerMinute: 30,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async () =>
+      d.actions.list({ state: 'awaiting_decision' }).map((a) => {
+        const p = a.payload as { to?: string[]; subject?: string; body?: string };
+        return { id: a.id, type: a.type, to: p.to, subject: p.subject, body: p.body, why: a.decisionReasons };
+      }),
+  });
   tools.register({
     name: 'search_messages',
     description: 'Search messages within permitted spaces.',
@@ -247,7 +283,7 @@ export async function createDurableJennifer(opts: JenniferOptions & { db: Db }) 
   const ownerId = opts.config?.ownerId ?? loadConfig({ ...process.env, JENNIFER_ENV: process.env.JENNIFER_ENV ?? 'development' }).ownerId;
   await ensureOwner(opts.db, ownerId);
   const store = new PgStateStore(opts.db, ownerId);
-  const j = createJennifer({ ...opts, clock, events: new PgEventLog(opts.db, clock), durability: store });
+  const j = createJennifer({ ...opts, clock, events: new PgEventLog(opts.db, clock), durability: store, settings: new PgSettings(opts.db, ownerId) });
 
   j.authority.restore(await store.loadRules());
   j.contacts.restore(await store.loadContacts());

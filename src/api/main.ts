@@ -52,9 +52,10 @@ const developerToken = process.env.JENNIFER_DEVELOPER_TOKEN;
 
 const port = j.config.port;
 const identity = new IdentityService(db, j.clock, j.audit, {
-  rpId: process.env.JENNIFER_RP_ID ?? 'localhost',
+  // On Render the public hostname is provided automatically.
+  rpId: process.env.JENNIFER_RP_ID ?? process.env.RENDER_EXTERNAL_HOSTNAME ?? 'localhost',
   rpName: 'Jennifer',
-  origins: (process.env.JENNIFER_ORIGINS ?? `http://localhost:${port}`).split(','),
+  origins: (process.env.JENNIFER_ORIGINS ?? (process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : `http://localhost:${port}`)).split(','),
 });
 
 // Simulator data is opt-in so it never mixes with a real connected inbox.

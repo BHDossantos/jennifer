@@ -6,6 +6,9 @@ import type { Jennifer } from '../app.js';
 import { verifyWebhookSignature } from '../events/events.js';
 import { redactSecrets } from '../security/redaction.js';
 import { DASHBOARD_HTML } from './dashboard.js';
+import { MANIFEST, SERVICE_WORKER, appIcon } from './pwa.js';
+import { FEMALE_VOICE_CANDIDATES } from '../voice/realtime.js';
+import { DEFAULT_VOICE, type VoiceSettings } from '../voice/persona.js';
 import type { IdentityService, Session } from '../identity/identity.js';
 import type { GmailService } from '../connectors/gmail/service.js';
 import { inventoryBlockers } from '../setup/inventory.js';
@@ -89,7 +92,12 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
 
   app.get('/health', async () => ({ ok: true }));
-  app.get('/', async (_req, reply) => reply.type('text/html').send(DASHBOARD_HTML));
+  app.get('/', async (_req, reply) => reply.type('text/html').header('cache-control', 'no-cache').send(DASHBOARD_HTML));
+  app.get('/manifest.webmanifest', async (_req, reply) => reply.type('application/manifest+json').send(MANIFEST));
+  app.get('/sw.js', async (_req, reply) => reply.type('text/javascript').header('cache-control', 'no-cache').send(SERVICE_WORKER));
+  app.get('/icon-192.png', async (_req, reply) => reply.type('image/png').send(appIcon(192)));
+  app.get('/icon-512.png', async (_req, reply) => reply.type('image/png').send(appIcon(512)));
+  app.get('/apple-touch-icon.png', async (_req, reply) => reply.type('image/png').send(appIcon(180)));
 
   // ---- Today / Connections ------------------------------------------------
   app.get('/v1/today', owner, async () => ({
@@ -160,6 +168,59 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   app.delete('/v1/devices/:id', owner, async (req) => {
     await requireIdentity().revokeDevice(j.ownerId, z.object({ id: z.string() }).parse(req.params).id, j.ownerId);
     return { revoked: true };
+  });
+
+  // ---- Voice -----------------------------------------------------------------
+  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft'];
+  const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose']) };
+  type StoredVoice = VoiceSettings & { mode: 'private' | 'business' };
+  const voiceSettings = async (): Promise<StoredVoice> => ({ ...DEFAULT_VOICE, voiceId: 'marin', mode: 'private', ...(await j.settings.get<StoredVoice>('voice')) });
+  const Lang = z.enum(['en', 'pt-BR', 'es', 'it']);
+
+  app.get('/v1/voice', owner, async () => ({ configured: j.voice.configured, candidates: FEMALE_VOICE_CANDIDATES, settings: await voiceSettings() }));
+  app.put('/v1/voice/settings', owner, async (req) => {
+    const b = z
+      .object({
+        voiceId: z.enum(FEMALE_VOICE_CANDIDATES.map((c) => c.id) as [string, ...string[]]).optional(),
+        warmth: z.number().min(0).max(1).optional(),
+        speakingRate: z.number().min(0.75).max(1.25).optional(),
+        playfulness: z.number().min(0).max(1).optional(),
+        verbosity: z.enum(['brief', 'normal', 'detailed']).optional(),
+        mode: z.enum(['private', 'business']).optional(),
+      })
+      .parse(req.body);
+    const next = { ...(await voiceSettings()), ...b };
+    await j.settings.set('voice', next);
+    j.audit.record(j.ownerId, 'voice.settings_changed', undefined, { voiceId: next.voiceId, mode: next.mode });
+    return next;
+  });
+  app.get('/v1/voice/audition', owner, async (req, reply) => {
+    const q = z.object({ voice: z.string(), mode: z.enum(['private', 'business']).default('private'), lang: Lang.default('en') }).parse(req.query);
+    const audio = await j.voice.sample(q.voice, q.mode, q.lang, await voiceSettings());
+    return reply.type('audio/mpeg').header('cache-control', 'private, max-age=86400').send(audio);
+  });
+  /** Ephemeral realtime credentials for the app; the OpenAI API key never leaves the server. */
+  app.post('/v1/voice/session', owner, async (req) => {
+    const b = z.object({ language: Lang.default('en'), mode: z.enum(['private', 'business']).optional() }).parse(req.body ?? {});
+    const s = await voiceSettings();
+    const tools = j.tools.forRole(voiceCtx).map((t) => {
+      const { $schema: _drop, ...parameters } = t.schema as Record<string, unknown>;
+      return { name: t.name, description: t.description, parameters };
+    });
+    const session = await j.voice.createSession({ settings: s, mode: b.mode ?? s.mode, language: b.language, tools });
+    j.audit.record(j.ownerId, 'voice.session_started', undefined, { voice: session.voice, model: session.model });
+    return session;
+  });
+  /** Tool calls from a live voice session run here, through the same registry and policy as everything else. */
+  app.post('/v1/voice/tools/:name', owner, async (req) => {
+    const { name } = z.object({ name: z.string() }).parse(req.params);
+    const b = z.object({ arguments: z.union([z.string(), z.record(z.string(), z.unknown())]).default({}) }).parse(req.body ?? {});
+    const args = typeof b.arguments === 'string' ? JSON.parse(b.arguments || '{}') : b.arguments;
+    try {
+      return { ok: true, result: await j.tools.invoke(name, args, voiceCtx) };
+    } catch (e) {
+      return { ok: false, error: e instanceof JenniferError ? e.message : 'Tool failed' };
+    }
   });
 
   // ---- Connectors: Gmail ----------------------------------------------------

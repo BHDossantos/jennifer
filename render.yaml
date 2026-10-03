@@ -1,0 +1,33 @@
+# One-click hosting on Render (no Google Cloud project): HTTPS web service + managed Postgres.
+# Dashboard → New → Blueprint → select this repo. Then set OPENAI_API_KEY.
+services:
+  - type: web
+    name: jennifer
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    healthCheckPath: /health
+    autoDeploy: false            # deploy deliberately; migrations run on boot
+    envVars:
+      - key: JENNIFER_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: jennifer-db
+          property: connectionString
+      - key: JENNIFER_API_TOKEN      # bootstrap token: used once to register your passkey
+        generateValue: true
+      - key: JENNIFER_WEBHOOK_SECRET
+        generateValue: true
+      - key: JENNIFER_VAULT_KEYS     # vault master secret (encrypts the Gmail app password)
+        generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false                  # paste in the Render dashboard
+      - key: JENNIFER_EMAIL_SANDBOX  # optional: only these recipients until you remove it
+        sync: false
+
+databases:
+  - name: jennifer-db
+    plan: basic-256mb
+    region: frankfurt
+    postgresMajorVersion: "16"

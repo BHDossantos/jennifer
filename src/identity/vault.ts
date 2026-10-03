@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { JenniferError } from '../core/types.js';
 import type { Db } from '../db/db.js';
 
@@ -33,6 +33,12 @@ export class LocalKeyWrapper implements KeyWrapper {
   static fromEnv(value: string | undefined): LocalKeyWrapper {
     if (!value) throw new Error('JENNIFER_VAULT_KEYS is required (format: "1:<base64 32 bytes>,2:<...>")');
     const map = new Map<number, Buffer>();
+    // A single high-entropy secret (e.g. a platform-generated value) is accepted as key v1 via SHA-256.
+    if (!value.includes(':')) {
+      if (value.length < 32) throw new Error('JENNIFER_VAULT_KEYS secret is too short');
+      map.set(1, createHash('sha256').update(value).digest());
+      return new LocalKeyWrapper(map);
+    }
     for (const part of value.split(',')) {
       const [v, b64] = part.split(':');
       map.set(Number(v), Buffer.from(b64 ?? '', 'base64'));

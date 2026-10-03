@@ -8,6 +8,12 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#141213" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Jennifer" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <title>Jennifer</title>
 <style>
   :root { --bg:#faf8f6; --fg:#1d1a19; --muted:#6b6461; --card:#fff; --line:#e7e1dc; --accent:#8a3b54; --warn:#a4461a; --ok:#2f6b43; }
@@ -41,10 +47,11 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   <button data-tab="tasks">Tasks</button>
   <button data-tab="connections">Connections</button>
   <button data-tab="memory">Memory</button>
+  <button data-tab="voice">Voice</button>
   <button data-tab="settings">Settings</button>
 </nav>
 <main id="view"></main>
-<button id="voice" data-state="offline" aria-label="Talk to Jennifer (voice unavailable in this preview)">offline</button>
+<button id="voice" data-state="offline" aria-label="Talk to Jennifer">Talk</button>
 <script>
 const $ = (s) => document.querySelector(s);
 let token = null;
@@ -115,6 +122,19 @@ const views = {
   async memory() {
     return \`<div class="card"><label>Search memory <input id="mq" placeholder="e.g. travel in November"></label></div><div id="mres"></div>\`;
   },
+  async voice() {
+    const v = await api('/v1/voice');
+    const s = v.settings;
+    const cards = v.candidates.map((c) => \`<div class="card"><strong>\${esc(c.label)}</strong> \${s.voiceId === c.id ? '<span class="good">· Jennifer\\u2019s voice</span>' : ''}
+      <div class="muted">\${esc(c.character)}</div>
+      <div class="row"><button class="btn" data-audition="\${c.id}" data-mode="private">Play private</button><button class="btn" data-audition="\${c.id}" data-mode="business">Play business</button>
+      <button class="btn primary" data-choose="\${c.id}">Choose</button></div></div>\`).join('');
+    const slider = (k, min, max, step) => \`<label>\${k} <input type="range" data-voiceset="\${k}" min="\${min}" max="\${max}" step="\${step}" value="\${s[k]}"></label>\`;
+    return (v.configured ? '' : '<div class="card bad">Voice needs OPENAI_API_KEY on the server.</div>') +
+      '<p class="muted">Listen to each voice and choose Jennifer\\u2019s. Private mode is how she speaks to you; business mode is how she sounds to everyone else.</p>' + cards +
+      \`<div class="card"><strong>Delivery</strong>\${slider('warmth', 0, 1, 0.1)}\${slider('playfulness', 0, 1, 0.1)}\${slider('speakingRate', 0.75, 1.25, 0.05)}
+      <label>Mode <select data-voiceset="mode"><option value="private" \${s.mode === 'private' ? 'selected' : ''}>Private (with you)</option><option value="business" \${s.mode === 'business' ? 'selected' : ''}>Business</option></select></label></div>\`;
+  },
   async settings() {
     const t = await api('/v1/today');
     return \`<div class="card"><strong>Controls</strong><pre>\${esc(JSON.stringify(t.controls, null, 2))}</pre>
@@ -134,6 +154,17 @@ document.addEventListener('click', async (e) => {
     let r; try { r = await go(); } catch (err) { if (!/second-factor/.test(err.message)) throw err; await stepUp(); r = await go(); }
     $('#status').textContent = 'Result: ' + r.state; return show('today'); }
   if (t.dataset.cancel) { await api('/v1/actions/' + t.dataset.cancel + '/cancel', { method: 'POST', body: '{}' }); return show('today'); }
+  if (t.id === 'voice') return rtc ? stopVoice() : startVoice().catch((err) => { stopVoice(); $('#status').textContent = 'Voice: ' + err.message; });
+  if (t.dataset.audition) {
+    t.disabled = true;
+    try {
+      const r = await fetch('/v1/voice/audition?voice=' + t.dataset.audition + '&mode=' + t.dataset.mode + '&lang=' + voiceLang(), { headers: { authorization: 'Bearer ' + token } });
+      if (!r.ok) throw new Error((await r.json()).message || r.status);
+      const a = new Audio(URL.createObjectURL(await r.blob())); await a.play();
+    } catch (err) { $('#status').textContent = 'Audition: ' + err.message; } finally { t.disabled = false; }
+    return;
+  }
+  if (t.dataset.choose) { await api('/v1/voice/settings', { method: 'PUT', body: JSON.stringify({ voiceId: t.dataset.choose }) }); return show('voice'); }
   if (t.dataset.gmail) {
     const go = async () => {
       if (t.dataset.gmail === 'connect') return api('/v1/connectors/gmail/connect', { method: 'POST', body: JSON.stringify({ address: $('#gaddr').value, appPassword: $('#gpass').value }) });
@@ -146,10 +177,56 @@ document.addEventListener('click', async (e) => {
   if (t.dataset.ctl) { await api('/v1/controls/' + t.dataset.ctl, { method: 'POST', body: '{}' }); return show('settings'); }
 });
 document.addEventListener('change', async (e) => {
+  if (e.target.dataset && e.target.dataset.voiceset) {
+    const k = e.target.dataset.voiceset; const v = k === 'mode' ? e.target.value : Number(e.target.value);
+    await api('/v1/voice/settings', { method: 'PUT', body: JSON.stringify({ [k]: v }) }); return;
+  }
   if (e.target.id !== 'mq') return;
   const res = await api('/v1/memory?q=' + encodeURIComponent(e.target.value));
   $('#mres').innerHTML = res.map(r => \`<div class="card">\${esc(r.entry.value)}<div class="muted">\${esc(r.freshness)} · source \${esc(r.sourceRef)}</div></div>\`).join('') || '<p class="muted">No matching memory.</p>';
 });
+// ---- Live voice: WebRTC straight to the realtime model with an ephemeral key; tools run on our server.
+let rtc = null;
+const voiceLang = () => { const l = (navigator.language || 'en').toLowerCase(); return l.startsWith('pt') ? 'pt-BR' : l.startsWith('es') ? 'es' : l.startsWith('it') ? 'it' : 'en'; };
+const setVoice = (state) => { const b = $('#voice'); b.dataset.state = state; b.textContent = { offline: 'Talk', connecting: '…', listening: 'Listening', thinking: 'Thinking', acting: 'Working', speaking: 'Speaking', muted: 'Muted' }[state] || state; b.setAttribute('aria-label', 'Jennifer: ' + state + '. Tap to ' + (state === 'offline' ? 'talk' : 'hang up')); };
+async function startVoice() {
+  setVoice('connecting');
+  const s = await api('/v1/voice/session', { method: 'POST', body: JSON.stringify({ language: voiceLang() }) });
+  const pc = new RTCPeerConnection();
+  const audio = document.createElement('audio'); audio.autoplay = true; audio.setAttribute('playsinline', '');
+  pc.ontrack = (e) => { audio.srcObject = e.streams[0]; };
+  const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  pc.addTrack(mic.getTracks()[0], mic);
+  const dc = pc.createDataChannel('oai-events');
+  dc.onopen = () => dc.send(JSON.stringify({ type: 'response.create' }));
+  dc.onmessage = async (m) => {
+    const ev = JSON.parse(m.data);
+    if (ev.type === 'input_audio_buffer.speech_started') setVoice('listening');
+    else if (ev.type === 'response.created') setVoice('thinking');
+    else if (ev.type === 'output_audio_buffer.started') setVoice('speaking');
+    else if (ev.type === 'output_audio_buffer.stopped' || ev.type === 'output_audio_buffer.cleared') setVoice('listening');
+    else if (ev.type === 'error') $('#status').textContent = 'Voice: ' + (ev.error && ev.error.message);
+    else if (ev.type === 'response.output_item.done' && ev.item && ev.item.type === 'function_call') {
+      setVoice('acting');
+      const r = await api('/v1/voice/tools/' + encodeURIComponent(ev.item.name), { method: 'POST', body: JSON.stringify({ arguments: ev.item.arguments }) }).catch((err) => ({ ok: false, error: err.message }));
+      dc.send(JSON.stringify({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: ev.item.call_id, output: JSON.stringify(r) } }));
+      dc.send(JSON.stringify({ type: 'response.create' }));
+    }
+  };
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  const ans = await fetch(s.callsUrl, { method: 'POST', body: offer.sdp, headers: { authorization: 'Bearer ' + s.clientSecret, 'content-type': 'application/sdp' } });
+  if (!ans.ok) throw new Error('voice connection refused (' + ans.status + ')');
+  await pc.setRemoteDescription({ type: 'answer', sdp: await ans.text() });
+  rtc = { pc, mic, dc, audio };
+  setVoice('listening');
+}
+function stopVoice() {
+  if (rtc) { try { rtc.dc.close(); } catch {} rtc.mic.getTracks().forEach((t) => t.stop()); rtc.pc.close(); rtc = null; }
+  setVoice('offline');
+}
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
 if (token) show('today'); else $('#view').innerHTML = '<p class="muted">Sign in with your passkey to continue.</p>';
 </script>
 </body>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, writeFileSync, cpSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, cpSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDurableJennifer } from '../../src/app.js';
@@ -47,7 +47,7 @@ describe('Week 2 — durable foundation (Postgres via PGlite)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'mig-'));
     cpSync('db/migrations', dir, { recursive: true });
     const db = await pgliteDb();
-    expect((await migrate(db, dir)).applied).toEqual(['0001_init.sql', '0002_event_lease_and_sessions.sql', '0003_connector_cursor.sql']);
+    expect((await migrate(db, dir)).applied).toEqual(readdirSync('db/migrations').filter((f) => f.endsWith('.sql')).sort());
     expect((await migrate(db, dir)).applied).toEqual([]);
     writeFileSync(join(dir, '0002_event_lease_and_sessions.sql'), '-- tampered');
     await expect(migrate(db, dir)).rejects.toThrow(/changed after it was applied/);
