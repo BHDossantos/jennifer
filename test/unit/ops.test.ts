@@ -29,7 +29,8 @@ describe('cost ledger and monthly ceiling (§18)', () => {
     const tool = new ScriptedToolModel(() => [{ type: 'assistant', text: 'hi' }]);
     const j = createJennifer({ clock: new FakeClock('2026-10-03T08:00:00Z'), emailConnectors: [new FakeEmailProvider()], model: new ScriptedModel(() => '{}'), toolModel: tool, config: { budgets: { monthlyCeilingEur: 0 } } as never, inventoryPath: null as never });
     const r = await j.inbound.handle({ accountId: 'a', connectorId: 'gmail', providerMessageId: 'p1', providerThreadId: 't1', from: { address: 'x@y.test' }, to: [], cc: [], subject: 's', body: 'b', headers: {}, occurredAt: new Date(), space: 'personal' }, { autoDraft: true });
-    expect(r.draftActionId).toBeUndefined();
+    expect(r.proposedActionId).toBeUndefined();
+    expect(r.message).toBeDefined();
     await expect(j.chat.send({ message: 'hello' })).rejects.toThrow(/ceiling/);
     expect(j.audit.list({ kind: 'draft.skipped' })).toHaveLength(1);
   });

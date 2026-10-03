@@ -62,6 +62,8 @@ export class NotificationService {
       audit: AuditLog;
       subject: string; // mailto: or https: contact for push services
       send?: PushSender;
+      /** Urgent notices when push is unavailable (e.g. SMS to Bruno's own phone). */
+      fallback?: (n: Notice, text: string) => Promise<void>;
     },
   ) {}
 
@@ -140,20 +142,32 @@ export class NotificationService {
 
   private async deliver(n: Notice, p: NotificationPrefs): Promise<'sent' | 'no_devices'> {
     const subs = await this.subscriptions();
-    if (subs.length === 0) return 'no_devices';
+    // Urgent items reach Bruno even without a working push subscription (configurable fallback channel, spec §16).
+    const fallback = async (): Promise<'sent' | 'no_devices'> => {
+      if (!n.urgent || !this.d.fallback) return 'no_devices';
+      try {
+        await this.d.fallback(n, `${n.title}: ${p.showDetails && n.detail ? n.detail : n.body}`);
+        return 'sent';
+      } catch {
+        return 'no_devices';
+      }
+    };
+    if (subs.length === 0) return fallback();
     const keys = await this.keys();
     const payload = JSON.stringify({ title: n.title, body: p.showDetails && n.detail ? n.detail : n.body, url: n.url, tag: n.dedupKey });
     const send: PushSender = this.d.send ?? ((sub, data, opts) => webpush.sendNotification(sub, data, opts));
     const dead: string[] = [];
+    let delivered = 0;
     for (const sub of subs) {
       try {
         await send(sub, payload, { TTL: n.urgent ? 3600 : 6 * 3600, urgency: n.urgent ? 'high' : 'normal', vapidDetails: { subject: this.d.subject, ...keys } });
+        delivered++;
       } catch (e) {
         const code = (e as { statusCode?: number }).statusCode;
         if (code === 404 || code === 410) dead.push(sub.endpoint); // subscription expired or app removed
       }
     }
     for (const ep of dead) await this.unsubscribe(ep);
-    return 'sent';
+    return delivered ? 'sent' : fallback();
   }
 }

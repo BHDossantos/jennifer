@@ -31,6 +31,16 @@ services:
         sync: false
       - key: OPENAI_WEBHOOK_SECRET   # phone calls: from OpenAI dashboard → Webhooks (realtime.call.incoming)
         sync: false
+      - key: TWILIO_ACCOUNT_SID      # optional SMS on Jennifer's number (Twilio, or SignalWire project id)
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: JENNIFER_SMS_FROM       # Jennifer's number, E.164
+        sync: false
+      - key: TWILIO_API_BASE         # SignalWire only: https://<space>.signalwire.com/api/laml
+        sync: false
+      - key: JENNIFER_ALERT_SMS_TO   # your mobile, for urgent alerts when push is off
+        sync: false
       - key: JENNIFER_TRANSFER_NUMBER  # your own number (E.164) for warm transfers; leave empty to disable
         sync: false
 

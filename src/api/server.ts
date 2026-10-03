@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { ACTION_MODES, ACTION_TYPES, JenniferError, SPACES } from '../core/types.js';
 import type { Jennifer } from '../app.js';
 import { verifyWebhookSignature } from '../events/events.js';
+import { verifyTwilioSignature } from '../connectors/sms/twilio.js';
 import { redactSecrets } from '../security/redaction.js';
 import { DASHBOARD_HTML } from './dashboard.js';
 import { MANIFEST, SERVICE_WORKER, appIcon } from './pwa.js';
@@ -278,14 +279,35 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     return req.session.idHash;
   };
   app.post('/v1/auth/passkeys/register/options', owner, async (req) => requireIdentity().registrationOptions(j.ownerId, j.ownerId, await registrationSession(req)));
+  // Unusual access alerts (spec §4): new devices, sign-in failures, dormant devices.
+  const securityAlert = (title: string, body: string, key: string) =>
+    void j.notifications.notify({ kind: 'problem', title, body, url: '/?tab=settings', urgent: true, dedupKey: `security:${key}` }).catch(() => undefined);
+  const loginFailures: number[] = [];
   app.post('/v1/auth/passkeys/register/verify', owner, async (req) => {
     const b = z.object({ handle: z.string(), response: z.any(), device: DeviceInfo }).parse(req.body);
-    return requireIdentity().verifyRegistration(b.handle, b.response, b.device, await registrationSession(req));
+    const hadPasskey = await requireIdentity().hasPasskey(j.ownerId);
+    const r = await requireIdentity().verifyRegistration(b.handle, b.response, b.device, await registrationSession(req));
+    if (hadPasskey) securityAlert('Jennifer: a new device was added', `A passkey for ${b.device.platform}${b.device.label ? ` (${b.device.label})` : ''} can now sign in. If this wasn't you, revoke it in Settings.`, r.deviceId);
+    return r;
   });
   app.post('/v1/auth/passkeys/login/options', async () => requireIdentity().loginOptions(j.ownerId));
   app.post('/v1/auth/passkeys/login/verify', async (req) => {
     const b = z.object({ handle: z.string(), response: z.any() }).parse(req.body);
-    const { token, session } = await requireIdentity().verifyLogin(b.handle, b.response);
+    const before = (await requireIdentity().devices(j.ownerId)) as Array<{ id: string; last_seen_at?: string | Date | null }>;
+    let result;
+    try {
+      result = await requireIdentity().verifyLogin(b.handle, b.response);
+    } catch (e) {
+      const now = j.clock.now().getTime();
+      loginFailures.push(now);
+      while (loginFailures.length && now - loginFailures[0]! > 10 * 60_000) loginFailures.shift();
+      if (loginFailures.length >= 5) securityAlert('Jennifer: repeated sign-in failures', `${loginFailures.length} failed passkey sign-ins in 10 minutes.`, `fail:${Math.floor(now / 600_000)}`);
+      throw e;
+    }
+    const { token, session } = result;
+    const prev = before.find((d) => d.id === session.deviceId)?.last_seen_at;
+    if (prev && j.clock.now().getTime() - new Date(prev).getTime() > 30 * 24 * 3600_000)
+      securityAlert('Jennifer: sign-in from a device unused for a month', 'If this wasn\'t you, revoke the device in Settings.', `dormant:${session.deviceId}:${session.idHash.slice(0, 8)}`);
     return { token, expiresAt: session.expiresAt };
   });
   app.post('/v1/auth/step-up/options', owner, async (req) => requireIdentity().stepUpOptions(requireSession(req)));
@@ -634,6 +656,41 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   app.get('/v1/calls', owner, async () => ({ configured: j.phone.configured, calls: await j.phone.log() }));
 
   // ---- Provider webhooks ---------------------------------------------------
+  // ---- SMS to Jennifer's number (Twilio / SignalWire signed webhook) -----------
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (req, body, done) => {
+    req.rawBody = body as string;
+    done(null, Object.fromEntries(new URLSearchParams(body as string)));
+  });
+  app.post('/v1/webhooks/sms', async (req, reply) => {
+    const cfg = j.config.sms;
+    if (!j.sms || !cfg.authToken) return reply.code(503).send({ error: 'sms not configured' });
+    const params = (req.body ?? {}) as Record<string, string>;
+    const url = `${(j.config.publicUrl ?? '').replace(/\/$/, '')}/v1/webhooks/sms`;
+    const sig = (req.headers['x-twilio-signature'] ?? req.headers['x-signalwire-signature']) as string | undefined;
+    if (!verifyTwilioSignature(cfg.authToken, url, params, sig)) return reply.code(401).send({ error: 'bad signature' });
+    const b = z.object({ MessageSid: z.string(), From: z.string(), To: z.string(), Body: z.string().default('') }).parse(params);
+    await j.inbound.handle(
+      {
+        accountId: j.sms.accountId,
+        connectorId: 'sms',
+        providerMessageId: b.MessageSid,
+        providerThreadId: `sms:${b.From}`,
+        from: { address: b.From },
+        to: [b.To],
+        cc: [],
+        subject: '',
+        body: b.Body,
+        headers: {},
+        occurredAt: j.clock.now(),
+        space: 'personal',
+        channel: 'sms',
+      },
+      { autoDraft: true },
+    );
+    j.capabilities.recordSync('sms');
+    return reply.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+  });
+
   app.post('/v1/webhooks/email/:connectorId', async (req, reply) => {
     if (!opts.webhookSecret) return reply.code(503).send({ error: 'webhooks not configured' });
     try {

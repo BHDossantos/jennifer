@@ -18,7 +18,7 @@ class FakeSocket extends EventEmitter implements SidebandSocket {
   }
 }
 
-function setup(opts: { transfer?: string; referFails?: boolean } = {}) {
+function setup(opts: { transfer?: string; referFails?: boolean; maxMinutes?: number } = {}) {
   const clock = new FakeClock(new Date());
   const api: Array<{ url: string; body: any }> = [];
   const fetchImpl = (async (url: string, init: RequestInit) => {
@@ -33,7 +33,7 @@ function setup(opts: { transfer?: string; referFails?: boolean } = {}) {
     fetchImpl,
     openSideband: () => (socket = new FakeSocket()),
     pushSender: async (_s, payload) => (pushes.push(JSON.parse(payload)), { statusCode: 201 }),
-    config: { ownerId: 'bruno', transferNumber: opts.transfer, openai: { apiKey: 'sk-test-abcdefghijklmnopqrstuvwxyz', webhookSecret: SECRET } as never },
+    config: { ownerId: 'bruno', transferNumber: opts.transfer, ...(opts.maxMinutes ? { budgets: { perCallMaxMinutes: opts.maxMinutes } as never } : {}), openai: { apiKey: 'sk-test-abcdefghijklmnopqrstuvwxyz', webhookSecret: SECRET } as never },
   });
   j.contacts.add({ ownerId: 'bruno', displayName: 'Marco Bianchi', spaces: ['music'], identities: [{ kind: 'phone', value: '+390612345678', verified: true, source: 't' }] });
   const app = buildServer(j, { tokens: { 'owner-token-0123456789': 'owner' } });
@@ -95,6 +95,17 @@ describe('phone calls (OpenAI Realtime SIP)', () => {
     const calls = (await t.app.inject({ method: 'GET', url: '/v1/calls', headers: OWNER })).json().calls;
     expect(calls[0]).toMatchObject({ outcome: 'transfer_failed' });
     expect(calls[0].endedAt).toBeDefined();
+  });
+
+  it('wraps up and hangs up at the per-call time limit', async () => {
+    const t = setup({ maxMinutes: 0.003 }); // ~180 ms
+    await t.incoming('rtc_long');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(t.socket().sent.some((m) => m.type === 'response.create' && /time limit/.test(m.response?.instructions ?? ''))).toBe(true);
+    await new Promise((r) => setTimeout(r, 250));
+    expect(t.api.some((c) => c.url.endsWith('/realtime/calls/rtc_long/hangup'))).toBe(true);
+    const [rec] = await t.j.phone.log();
+    expect(rec!.events.map((e) => e.text)).toContain('Ended: maximum call length reached');
   });
 
   it('parses caller numbers from SIP headers', () => {

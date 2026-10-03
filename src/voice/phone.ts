@@ -82,6 +82,8 @@ export interface PhoneDeps {
   /** Cost of a finished call (minutes) for the operating ledger. */
   onCallEnded?: (minutes: number) => void;
   maxCallsPerDay?: number;
+  /** Per-call duration limit (spec §18); Jennifer wraps up a minute before. */
+  maxCallMinutes?: number;
 }
 
 const CALLER_TOOLS = [
@@ -187,7 +189,30 @@ export class PhoneService {
     await this.save(rec);
     this.d.audit.record('jennifer', 'call.answered', rec.id, { from: from ? `…${from.slice(-4)}` : undefined });
     this.attach(callId);
+    this.limitDuration(callId, rec);
     return { handled: true, callId, action: 'accepted' };
+  }
+
+  private timers = new Map<string, NodeJS.Timeout[]>();
+
+  /** Wrap up politely one minute before the limit, then hang up at the limit. */
+  private limitDuration(callId: string, rec: CallRecord): void {
+    const max = (this.d.maxCallMinutes ?? 20) * 60_000;
+    const warn = setTimeout(() => {
+      const ws = this.sockets.get(callId);
+      ws?.send(JSON.stringify({ type: 'response.create', response: { instructions: 'We are close to the time limit for this call. Politely tell the caller you need to wrap up in a minute, and offer to take a message for Bruno now.' } }));
+      this.event(rec, 'Wrapping up: call time limit approaching');
+    }, Math.max(0, max - 60_000));
+    const end = setTimeout(() => {
+      rec.outcome = rec.outcome ?? 'ended';
+      this.event(rec, 'Ended: maximum call length reached');
+      void this.post(`/realtime/calls/${callId}/hangup`, {})
+        .catch(() => undefined)
+        .finally(() => void this.finish(callId));
+    }, max);
+    warn.unref?.();
+    end.unref?.();
+    this.timers.set(callId, [warn, end]);
   }
 
   private instructions(rec: CallRecord): string {
@@ -291,6 +316,8 @@ export class PhoneService {
   }
 
   private async finish(callId: string): Promise<void> {
+    for (const t of this.timers.get(callId) ?? []) clearTimeout(t);
+    this.timers.delete(callId);
     const rec = this.calls.get(callId);
     this.sockets.delete(callId);
     if (!rec || rec.endedAt) return;

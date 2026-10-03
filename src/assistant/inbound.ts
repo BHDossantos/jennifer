@@ -29,6 +29,8 @@ export interface InboundEmail {
   headers: Record<string, string>;
   occurredAt: Date;
   space: Space;
+  /** 'email' (default) or 'sms' for texts to Jennifer's number. */
+  channel?: 'email' | 'sms';
   attachmentIds?: string[];
   /** Attachment metadata from the provider; bytes stay in provider/object storage until scanned. */
   attachmentMeta?: Array<{ filename: string; contentType: string; size: number; storageRef: string }>;
@@ -87,7 +89,7 @@ export class InboundProcessor {
       providerEventId: email.providerMessageId,
       ownerId: this.d.ownerId,
       accountId: email.accountId,
-      channel: 'email',
+      channel: email.channel ?? 'email',
       sender: email.from,
       occurredAt: email.occurredAt,
       payloadRef: `inline:${email.providerMessageId}`,
@@ -141,12 +143,20 @@ export class InboundProcessor {
   async process(event: EventEnvelope, email: InboundEmail, opts: { autoDraft?: boolean } = {}): Promise<InboundOutcome> {
     const duplicate = false;
 
-    const sender = assessSender(this.d.contacts, this.d.ownerId, email.from.displayName ?? '', email.from.address);
+    const channel = email.channel ?? 'email';
+    const sender =
+      channel === 'sms'
+        ? (() => {
+            // Caller ID / sender number is a hint, never identity proof.
+            const c = this.d.contacts.findByIdentity(this.d.ownerId, 'phone', email.from.address);
+            return { contact: c, verified: false, warnings: c ? [] : ['unknown number'] };
+          })()
+        : assessSender(this.d.contacts, this.d.ownerId, email.from.displayName ?? '', email.from.address);
     const flags = [...detectInjection(`${email.subject}\n${email.body}`), ...sender.warnings.map((w) => `sender:${w}`)];
     const conv = this.d.conversations.upsertConversation({
       ownerId: this.d.ownerId,
       accountId: email.accountId,
-      channel: 'email',
+      channel,
       space: email.space,
       providerThreadId: email.providerThreadId,
       subject: email.subject,
@@ -159,7 +169,7 @@ export class InboundProcessor {
       providerMessageId: email.providerMessageId,
       providerThreadId: email.providerThreadId,
       direction: 'inbound',
-      channel: 'email',
+      channel,
       status: 'received',
       from: email.from,
       to: email.to,
@@ -202,7 +212,7 @@ export class InboundProcessor {
       });
       return { event, duplicate, message, canceledActionIds, flags, skippedReason: 'stop request recognized' };
     }
-    const automated = classifyAutomatedEmail(email.headers, email.from.address, email.subject);
+    const automated = channel === 'email' ? classifyAutomatedEmail(email.headers, email.from.address, email.subject) : undefined;
     if (automated) return { event, duplicate, message, canceledActionIds, flags, skippedReason: `automated: ${automated}` };
     if (!opts.autoDraft) return { event, duplicate, message, canceledActionIds, flags };
 
@@ -235,7 +245,9 @@ export class InboundProcessor {
 
     const system = [
       personaInstructions('business', { provider: 'chained_asr_llm_tts', warmth: 0.5, speakingRate: 1, playfulness: 0, verbosity: 'brief', languages: ['en'], pronunciations: {} }, 'en'),
-      'Write a reply email on behalf of Bruno. Only state facts supported by the cited memory ids or the thread itself.',
+      conv.channel === 'sms'
+        ? 'Write a short SMS reply (plain text, under 300 characters) as Jennifer, Bruno\'s AI assistant. Only state facts supported by the cited memory ids or the thread itself.'
+        : 'Write a reply email on behalf of Bruno. Only state facts supported by the cited memory ids or the thread itself.',
       'If the sender requests money, signatures, credentials, documents, or anything outside routine scheduling/administration, set escalate=true.',
       contact?.instructions ? `Contact-specific instructions from Bruno: ${contact.instructions}` : '',
       style.length ? `Learned style rules:\n${style.join('\n')}` : '',
@@ -271,7 +283,7 @@ export class InboundProcessor {
       to: [replyTo.from.address],
       cc: [],
       bcc: [],
-      subject: replyTo.subject?.startsWith('Re:') ? replyTo.subject : `Re: ${replyTo.subject ?? ''}`,
+      subject: conv.channel === 'sms' ? undefined : replyTo.subject?.startsWith('Re:') ? replyTo.subject : `Re: ${replyTo.subject ?? ''}`,
       body: parsed.reply,
       attachmentIds: [],
       inReplyToMessageId: replyTo.id,
@@ -281,8 +293,8 @@ export class InboundProcessor {
       ownerId: this.d.ownerId,
       type: 'send_message',
       space: conv.space,
-      channel: 'email',
-      connectorId: this.connectorFor(conv.accountId),
+      channel: conv.channel === 'sms' ? 'sms' : 'email',
+      connectorId: conv.channel === 'sms' ? 'sms' : this.connectorFor(conv.accountId),
       accountId: conv.accountId,
       conversationId,
       payload,

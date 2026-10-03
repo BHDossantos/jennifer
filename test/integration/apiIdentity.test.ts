@@ -46,6 +46,9 @@ describe('Week 2 — authenticated API with passkeys', () => {
     const session = { authorization: `Bearer ${token}` };
     expect((await app.inject({ method: 'GET', url: '/v1/today', headers: session })).statusCode).toBe(200);
 
+    const notices: Array<{ title: string; urgent?: boolean }> = [];
+    const notify = j.notifications.notify.bind(j.notifications);
+    j.notifications.notify = async (n) => (notices.push(n), notify(n));
     // Once a passkey exists, the bootstrap token can no longer enroll another one (it would gain step-up).
     expect((await app.inject({ method: 'POST', url: '/v1/auth/passkeys/register/options', headers: boot })).json().error).toBe('identity.session_required');
     // A stepped-up session can, and the challenge is bound to that session.
@@ -54,6 +57,8 @@ describe('Week 2 — authenticated API with passkeys', () => {
     expect((await app.inject({ method: 'POST', url: '/v1/auth/passkeys/register/verify', headers: boot, payload: { handle: reg2Opts.handle, response: laptop.register(reg2Opts.options), device: { platform: 'macOS' } } })).statusCode).toBe(409);
     const reg3Opts = (await app.inject({ method: 'POST', url: '/v1/auth/passkeys/register/options', headers: session })).json();
     expect((await app.inject({ method: 'POST', url: '/v1/auth/passkeys/register/verify', headers: session, payload: { handle: reg3Opts.handle, response: laptop.register(reg3Opts.options), device: { platform: 'macOS' } } })).statusCode).toBe(200);
+    // Adding a device raises a security alert (urgent → delivered even during quiet hours).
+    expect(notices).toEqual([expect.objectContaining({ title: 'Jennifer: a new device was added', urgent: true })]);
 
     const sign = () =>
       j.actions.propose({ ownerId: 'bruno', type: 'sign_contract', space: 'insurance', channel: 'app', connectorId: 'esign', accountId: 'esign:bruno', payload: { contract: 'carrier-appointment.pdf' }, proposedBy: 'jennifer' });

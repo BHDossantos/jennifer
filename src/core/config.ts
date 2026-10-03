@@ -28,6 +28,17 @@ const ConfigSchema = z.object({
   }),
   /** Which provider writes text: auto = OpenAI when its key is set, else Claude. */
   modelProvider: z.enum(['auto', 'openai', 'anthropic']).default('auto'),
+  /** SMS on Jennifer's number (Twilio, or SignalWire via apiBase). */
+  sms: z.object({
+    accountSid: z.string().optional(),
+    authToken: z.string().optional(),
+    from: z.string().regex(/^\+\d{8,15}$/).optional(),
+    apiBase: z.string().url().optional(),
+    /** Bruno's own mobile (E.164) for urgent alerts when push is unavailable. */
+    alertTo: z.string().regex(/^\+\d{8,15}$/).optional(),
+  }),
+  /** Public base URL (for verifying signed provider webhooks). */
+  publicUrl: z.string().url().optional(),
   /** Bruno's own number for warm transfers from Jennifer's phone line (E.164). */
   transferNumber: z.string().regex(/^\+\d{8,15}$/).optional(),
   /** Retention in days, configured separately per data class (spec §17). 0 = keep. */
@@ -64,6 +75,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     anthropic: { apiKey: env.ANTHROPIC_API_KEY || undefined, model: env.JENNIFER_CLAUDE_MODEL || undefined, effort: env.JENNIFER_CLAUDE_EFFORT || undefined },
     modelProvider: env.MODEL_PROVIDER || undefined,
+    sms: {
+      accountSid: env.TWILIO_ACCOUNT_SID || undefined,
+      authToken: env.TWILIO_AUTH_TOKEN || undefined,
+      from: env.JENNIFER_SMS_FROM || undefined,
+      apiBase: env.TWILIO_API_BASE || undefined,
+      alertTo: env.JENNIFER_ALERT_SMS_TO || undefined,
+    },
+    publicUrl: env.JENNIFER_PUBLIC_URL || (env.RENDER_EXTERNAL_URL ? env.RENDER_EXTERNAL_URL : undefined),
     transferNumber: env.JENNIFER_TRANSFER_NUMBER || undefined,
     retention: {
       messagesDays: env.JENNIFER_RETAIN_MESSAGES_DAYS || undefined,

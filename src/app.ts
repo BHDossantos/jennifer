@@ -23,6 +23,7 @@ import { WorkflowRegistry, buildDailyBrief } from './workflows/workflows.js';
 import { Metrics } from './ops/metrics.js';
 import { RetentionService } from './ops/retention.js';
 import { WebResearch } from './research/web.js';
+import { TwilioSms } from './connectors/sms/twilio.js';
 import { CostLedger, DEFAULT_PRICING, MeteredModel, MeteredToolModel, type Pricing } from './ops/costs.js';
 import { FeedbackStore, ModelRegistry, type FeedbackKind } from './learning/feedback.js';
 import type { ControlsSnapshot, SuppressionRule } from './policy/controls.js';
@@ -103,6 +104,12 @@ export function createJennifer(opts: JenniferOptions = {}) {
 
   const emailConnectors = new Map<string, MessagingConnector>();
   for (const c of opts.emailConnectors ?? [new FakeEmailProvider('gmail')]) emailConnectors.set(c.id, c);
+  const smsCfg = config.sms;
+  const sms = smsCfg.accountSid && smsCfg.authToken && smsCfg.from ? new TwilioSms({ accountSid: smsCfg.accountSid, authToken: smsCfg.authToken, from: smsCfg.from, apiBase: smsCfg.apiBase, fetchImpl: opts.fetchImpl }) : undefined;
+  if (sms) {
+    emailConnectors.set(sms.id, sms);
+    capabilities.markConnected('sms', sms.accountId, smsCfg.from);
+  }
 
   const actions = new ActionService({ clock, audit, authority, controls, suppressions, conversations, deadLetters, random: opts.random, durability: opts.durability });
   actions.register(new SendMessageHandler(contacts, conversations, emailConnectors, capabilities, { clock, sandboxRecipients: opts.sandboxRecipients }));
@@ -158,6 +165,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     secrets: opts.secrets ?? { get: async (k) => memorySecrets.get(k), set: async (k, v) => void memorySecrets.set(k, v) },
     subject: process.env.JENNIFER_PUSH_SUBJECT ?? (process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : 'mailto:jennifer@localhost.invalid'),
     send: opts.pushSender,
+    fallback: sms && smsCfg.alertTo ? (_n, text) => sms.alertOwner(smsCfg.alertTo!, `Jennifer: ${text}`) : undefined,
   });
   const quietly = (p: Promise<unknown>) => void p.catch(() => undefined);
   let learning: { rejected: (actionId: string, reason: FeedbackKind, note?: string) => void } = { rejected: () => undefined };
@@ -269,6 +277,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     transferTarget: config.transferNumber,
     fetchImpl: opts.fetchImpl,
     openSideband: opts.openSideband,
+    maxCallMinutes: config.budgets.perCallMaxMinutes,
     onCallEnded: (minutes) => void costs.record('phone', 'call', minutes * (costs.pricing.phonePerMinute + costs.pricing.voicePerMinute)).catch(() => undefined),
   });
   const history = new AiHistoryService({ store: opts.aiHistoryStore ?? new MemoryAiHistoryStore(), clock, audit, memory, ownerId, model: opts.model || brain.provider !== 'none' ? new MeteredModel(model, costs, 'memory_suggestions') : undefined, modelName: brain.model, promptVersion: config.openai.promptVersion });
@@ -368,6 +377,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     agents,
     workflows,
     feedback,
+    sms,
     costs,
     metrics,
     retention,
