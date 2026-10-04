@@ -41,6 +41,10 @@ services:
         sync: false
       - key: JENNIFER_ALERT_SMS_TO   # your mobile, for urgent alerts when push is off
         sync: false
+      - key: GOOGLE_CLIENT_ID          # Google Calendar read/write (OAuth client from your Google Cloud project)
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
       - key: WHATSAPP_TOKEN            # Meta system-user token (WhatsApp Cloud API)
         sync: false
       - key: WHATSAPP_PHONE_NUMBER_ID

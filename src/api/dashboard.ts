@@ -147,7 +147,9 @@ const views = {
       <div class="row"><button class="btn primary" data-cal="icloud">Connect iCloud Calendar</button></div>
       <p class="muted"><b>Google Calendar</b> (read-only): Google Calendar → Settings → your calendar → Integrate calendar → Secret address in iCal format.</p>
       <label>Secret iCal address <input id="cfeed" type="url" autocomplete="off"></label>
-      <div class="row"><button class="btn" data-cal="feed">Add Google Calendar</button><button class="btn" data-cal="sync">Refresh now</button></div></div>\`;
+      <p class="muted"><b>Google Calendar, read and write</b>: sign in with Google (needs the Google Cloud setup from the README).</p>
+      <div class="row"><button class="btn primary" data-gcal="1">Connect Google Calendar (read &amp; write)</button></div>
+      <div class="row"><button class="btn" data-cal="feed">Add Google Calendar (read-only link)</button><button class="btn" data-cal="sync">Refresh now</button></div></div>\`;
     return gmailCard + calCard + (await api('/v1/connections')).map(c => \`<div class="card"><strong>\${esc(c.provider)}</strong> <span class="\${c.connected ? 'good' : 'bad'}">\${c.connected ? 'connected' : 'not connected'}</span>
       <div class="muted">Monitoring: \${c.canMonitor ? 'yes' : 'no'} · Last sync: \${esc(c.lastSync || 'never')}</div>
       <div>Can: \${esc(c.actions.join(', ') || 'nothing yet')}</div><div class="muted">Unavailable: \${esc(c.unavailable.join(', '))}</div>
@@ -289,6 +291,10 @@ document.addEventListener('click', async (e) => {
       $('#status').textContent = 'Autopilot is off.';
     }
     return show('settings');
+  }
+  if (t.dataset.gcal) {
+    try { const r = await api('/v1/connectors/google-calendar/start', { method: 'POST', body: '{}' }); location.href = r.url; } catch (err) { $('#status').textContent = 'Google: ' + err.message; }
+    return;
   }
   if (t.dataset.pron) {
     const pronunciations = Object.fromEntries($('#pron').value.split('\\n').map((l) => l.split('=').map((x) => x.trim())).filter((p) => p.length === 2 && p[0] && p[1]));
@@ -496,6 +502,8 @@ document.addEventListener('pointercancel', pttStop);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
 const startTab = new URLSearchParams(location.search).get('tab');
+const googleResult = new URLSearchParams(location.search).get('google');
+if (googleResult) setTimeout(() => { $('#status').textContent = googleResult === 'connected' ? 'Google Calendar connected.' : 'Google Calendar: ' + googleResult; }, 500);
 if (token) show(startTab && views[startTab] ? startTab : 'today'); else $('#view').innerHTML = '<p class="muted">Sign in with your passkey to continue.</p>';
 </script>
 </body>

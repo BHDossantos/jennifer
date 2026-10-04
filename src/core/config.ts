@@ -54,6 +54,8 @@ const ConfigSchema = z.object({
     /** Which of Bruno's spaces this business number belongs to. */
     space: z.enum(['personal', 'insurance', 'music', 'restaurant', 'nonprofit', 'technology']).default('personal'),
   }),
+  /** Google sign-in (OAuth client from a Google Cloud project) for Google Calendar read/write. */
+  google: z.object({ clientId: z.string().optional(), clientSecret: z.string().optional() }),
   /** Public base URL (for verifying signed provider webhooks). */
   publicUrl: z.string().url().optional(),
   /** Bruno's own number for warm transfers from Jennifer's phone line (E.164). */
@@ -113,6 +115,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       graphVersion: env.WHATSAPP_GRAPH_VERSION || undefined,
       space: env.JENNIFER_WHATSAPP_SPACE || undefined,
     },
+    google: { clientId: env.GOOGLE_CLIENT_ID || undefined, clientSecret: env.GOOGLE_CLIENT_SECRET || undefined },
     publicUrl: env.JENNIFER_PUBLIC_URL || (env.RENDER_EXTERNAL_URL ? env.RENDER_EXTERNAL_URL : undefined),
     transferNumber: env.JENNIFER_TRANSFER_NUMBER || undefined,
     retention: {

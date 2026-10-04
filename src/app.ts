@@ -676,7 +676,7 @@ function registerCalendarTools(
         type: 'create_event',
         space: 'personal',
         channel: 'calendar',
-        connectorId: writer ? 'icloud_calendar' : 'google_calendar',
+        connectorId: writer?.id.startsWith('gcal:') ? 'google_calendar' : writer ? 'icloud_calendar' : 'google_calendar',
         accountId: writer?.id ?? 'local-calendar',
         payload: { event: ev },
         proposedBy: `agent:${ctx.role}`,

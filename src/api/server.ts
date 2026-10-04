@@ -513,6 +513,22 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     const b = z.object({ url: z.string().min(10).max(2000), label: z.string().max(80).default('Google Calendar') }).parse(req.body);
     return requireCalendars().connectIcsFeed(b.url, b.label, j.ownerId);
   });
+  /** Google Calendar read/write: start Google sign-in (sensitive), then Google redirects to the callback. */
+  app.post('/v1/connectors/google-calendar/start', owner, async (req) => {
+    requireSensitive(req);
+    return requireCalendars().startGoogle();
+  });
+  /** Public by necessity (Google's browser redirect); authorized by the single-use state created above. */
+  app.get('/v1/connectors/google-calendar/callback', async (req, reply) => {
+    const q = z.object({ code: z.string().optional(), state: z.string().optional(), error: z.string().optional() }).parse(req.query);
+    if (q.error || !q.code || !q.state) return reply.redirect(`/?tab=connections&google=${encodeURIComponent(q.error ?? 'cancelled')}`);
+    try {
+      await requireCalendars().finishGoogle(q.code, q.state, j.ownerId);
+      return reply.redirect('/?tab=connections&google=connected');
+    } catch (e) {
+      return reply.redirect(`/?tab=connections&google=${encodeURIComponent(e instanceof JenniferError ? e.code : 'failed')}`);
+    }
+  });
   app.post('/v1/connectors/calendar/sync', owner, async () => requireCalendars().syncNow());
   app.post('/v1/connectors/calendar/:id/disconnect', owner, async (req) => {
     await requireCalendars().disconnect(z.object({ id: z.string() }).parse(req.params).id, j.ownerId);

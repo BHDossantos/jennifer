@@ -55,7 +55,21 @@ const gmail = vault
   : undefined;
 if (gmail) await gmail.resume().catch((e) => console.error('Gmail resume failed:', (e as Error).message));
 const calendars = vault
-  ? new CalendarConnections({ db, vault, clock: j.clock, audit: j.audit, capabilities: j.capabilities, calendar: j.calendar, ownerId: j.ownerId, environment: env })
+  ? new CalendarConnections({
+      db,
+      vault,
+      clock: j.clock,
+      audit: j.audit,
+      capabilities: j.capabilities,
+      calendar: j.calendar,
+      ownerId: j.ownerId,
+      environment: env,
+      homeTimeZone: j.config.homeTimeZone,
+      google:
+        j.config.google.clientId && j.config.google.clientSecret && j.config.publicUrl
+          ? { clientId: j.config.google.clientId, clientSecret: j.config.google.clientSecret, redirectUri: `${j.config.publicUrl.replace(/\/$/, '')}/v1/connectors/google-calendar/callback` }
+          : undefined,
+    })
   : undefined;
 if (calendars) await calendars.resume().catch((e) => console.error('Calendar resume failed:', (e as Error).message));
 const ownerToken = j.config.apiToken ?? (dev ? 'dev-owner-token-change-me' : undefined);

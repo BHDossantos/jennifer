@@ -120,9 +120,16 @@ export class CalendarService {
     for (const [k, e] of this.provider.events) if (e.source === id) this.provider.events.delete(k);
   }
 
-  writer(): RemoteCalendar | undefined {
-    return this.remotes.find((r) => r.writable);
+  /** Where new events go: the preferred writable calendar (Google when connected), else the first writable one. */
+  writer(forEventSource?: string): RemoteCalendar | undefined {
+    if (forEventSource) {
+      const own = this.remotes.find((r) => r.id === forEventSource && r.writable);
+      if (own) return own; // edits go back to the calendar the event lives in
+    }
+    return this.remotes.find((r) => r.writable && r.id === this.preferredWriter) ?? this.remotes.find((r) => r.writable);
   }
+
+  preferredWriter?: string;
 
   /** Refresh the mirror from every attached calendar (default window: yesterday → 60 days). */
   async sync(from = new Date(this.clock.now().getTime() - 24 * 3600_000), to = new Date(this.clock.now().getTime() + 60 * 24 * 3600_000)): Promise<{ events: number; errors: string[] }> {
@@ -279,8 +286,9 @@ export class CalendarActionHandler implements ActionHandler<CalendarActionPayloa
       const old = this.calendar.get(intent.payload.replacesEventId);
       ev.id = old.id;
       ev.providerEventId = old.providerEventId;
+      ev.etag = old.etag; // update only the version Jennifer read (412 → conflict, never a blind overwrite)
     }
-    const writer = this.calendar.writer();
+    const writer = this.calendar.writer(intent.payload.replacesEventId ? this.calendar.get(intent.payload.replacesEventId).source : undefined);
     try {
       if (writer) {
         // The UID is the idempotency key for new events, or the existing event's UID when moving one.

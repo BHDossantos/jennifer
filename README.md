@@ -41,6 +41,11 @@ Bruno's persistent executive assistant: backend foundation, policy engine, durab
     - In Render set `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET` (App settings → Basic), `WHATSAPP_VERIFY_TOKEN` (any long random string) and optionally `JENNIFER_WHATSAPP_SPACE` (e.g. `restaurant`).
     - In the app's WhatsApp → Configuration, set the webhook to `https://<your Jennifer URL>/v1/webhooks/whatsapp` with that verify token, and subscribe to **messages** and **smb_message_echoes**.
     - WhatsApp only allows free replies within 24 hours of the customer's last message; Jennifer enforces that. Messages you type in the app cancel her pending draft for that chat.
+14. **Google Calendar, read and write (when you create the Google Cloud project):**
+    - console.cloud.google.com → new project "Jennifer" → APIs & Services → enable **Google Calendar API**.
+    - OAuth consent screen: External, add your Gmail as a test user (or publish), scope `.../auth/calendar.events`.
+    - Credentials → Create OAuth client ID → Web application → Authorized redirect URI `https://<your Jennifer URL>/v1/connectors/google-calendar/callback`.
+    - In Render set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, then in Connections tap **Connect Google Calendar (read & write)**. New events then go to Google; edits go back to whichever calendar the event lives in.
 13. **Autopilot:** Settings → **Turn on Autopilot** lets Jennifer reply on her own, in real time, to people you know on every connected account. Strangers, attachments, money, contracts and security changes still come to you. Turn it off with one tap.
 
 ## ChatGPT and Claude: what Jennifer can and cannot see

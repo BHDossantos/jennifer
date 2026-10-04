@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { JenniferError } from '../core/types.js';
 import { type Clock } from '../core/util.js';
 import type { Db } from '../db/db.js';
@@ -5,6 +6,7 @@ import type { Vault } from '../identity/vault.js';
 import type { AuditLog } from '../audit/audit.js';
 import type { CapabilityRegistry } from '../connectors/capabilities.js';
 import { isAllowedEgress, safeFetchText } from '../security/untrusted.js';
+import { GoogleCalendarRemote, GoogleOAuth, pkcePair, type GoogleOAuthConfig } from './google.js';
 import { CalDavAuthError, CalDavClient, ICLOUD_CALDAV, type CalDavCalendar } from './caldav.js';
 import { buildIcs, parseIcs } from './ics.js';
 import type { CalendarEvent, CalendarService, RemoteCalendar } from './calendar.js';
@@ -57,6 +59,8 @@ export class CalDavRemote implements RemoteCalendar {
   }
 }
 
+const connectorOf = (id: string) => (id.startsWith('icloud:') ? 'icloud_calendar' : id.startsWith('gcal:') ? 'google_calendar' : 'google_calendar_ics');
+
 /** A secret iCal address (e.g. Google Calendar → "Secret address in iCal format"): read-only. */
 export class IcsFeedRemote implements RemoteCalendar {
   readonly writable = false;
@@ -108,8 +112,51 @@ export class CalendarConnections {
       caldavBase?: string;
       fetchImpl?: typeof fetch;
       resolve?: (host: string) => Promise<string[]>;
+      /** Google sign-in for read/write Google Calendar (needs a Google Cloud OAuth client). */
+      google?: GoogleOAuthConfig;
+      homeTimeZone?: string;
     },
   ) {}
+
+  private googleStates = new Map<string, { verifier: string; expires: number }>();
+
+  get googleConfigured(): boolean {
+    return !!this.d.google;
+  }
+
+  /** Step 1: the URL that opens Google's consent screen (state + PKCE, 10-minute expiry). */
+  startGoogle(): { url: string } {
+    if (!this.d.google) throw new JenniferError('calendar.google_not_configured', 'Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (from your Google Cloud project) first');
+    const now = this.d.clock.now().getTime();
+    for (const [k, v] of this.googleStates) if (v.expires < now) this.googleStates.delete(k);
+    const state = randomBytes(24).toString('base64url');
+    const { verifier, challenge } = pkcePair();
+    this.googleStates.set(state, { verifier, expires: now + 10 * 60_000 });
+    return { url: new GoogleOAuth({ ...this.d.google, fetchImpl: this.d.fetchImpl }).authUrl(state, challenge) };
+  }
+
+  /** Step 2: Google redirects back with a one-time code; the state must match a live, unused request. */
+  async finishGoogle(code: string, state: string, actor: string): Promise<{ events: number }> {
+    const pending = this.googleStates.get(state);
+    this.googleStates.delete(state);
+    if (!this.d.google || !pending || pending.expires < this.d.clock.now().getTime()) throw new JenniferError('calendar.google_state', 'This Google sign-in link expired or was already used; start again');
+    const oauth = new GoogleOAuth({ ...this.d.google, fetchImpl: this.d.fetchImpl });
+    const { refreshToken } = await oauth.exchange(code, pending.verifier);
+    const id = 'gcal:primary';
+    await this.d.vault.put(id, JSON.stringify({ refreshToken, calendarId: 'primary' }), this.binding(id));
+    await this.save(id, 'google_calendar', 'Google Calendar');
+    this.attachGoogle(id, refreshToken);
+    this.d.audit.record(actor, 'connector.connected', id, { connector: 'google_calendar' });
+    const r = await this.syncNow();
+    return { events: r.events };
+  }
+
+  private attachGoogle(id: string, refreshToken: string) {
+    const oauth = new GoogleOAuth({ ...this.d.google!, fetchImpl: this.d.fetchImpl });
+    this.d.calendar.attach(new GoogleCalendarRemote(id, 'Google Calendar', oauth, refreshToken, this.d.homeTimeZone ?? 'Europe/Rome', 'primary', this.d.fetchImpl));
+    this.d.calendar.preferredWriter = id;
+    this.d.capabilities.markConnected('google_calendar', id, 'Google Calendar (read and write)');
+  }
 
   private binding(accountId: string) {
     return { ownerId: this.d.ownerId, accountId, environment: this.d.environment };
@@ -155,14 +202,16 @@ export class CalendarConnections {
   async resume(): Promise<number> {
     const rows = (
       await this.d.db.query<{ id: string; connector_id: string }>(
-        `SELECT id, connector_id FROM account_connection WHERE owner_id = $1 AND environment = $2 AND connected AND revoked_at IS NULL AND connector_id IN ('icloud_calendar','google_calendar_ics')`,
+        `SELECT id, connector_id FROM account_connection WHERE owner_id = $1 AND environment = $2 AND connected AND revoked_at IS NULL AND connector_id IN ('icloud_calendar','google_calendar_ics','google_calendar')`,
         [this.d.ownerId, this.d.environment],
       )
     ).rows;
     for (const r of rows) {
       const secret = JSON.parse(await this.d.vault.get(r.id, this.binding(r.id)));
       if (r.connector_id === 'icloud_calendar') this.attachICloud(r.id, secret.username, secret.password, secret.calendarUrl, secret.label);
-      else {
+      else if (r.connector_id === 'google_calendar') {
+        if (this.d.google) this.attachGoogle(r.id, secret.refreshToken);
+      } else {
         this.d.calendar.attach(new IcsFeedRemote(r.id, secret.label, secret.url, this.d.fetchImpl, this.d.resolve));
         this.d.capabilities.markConnected('google_calendar_ics', r.id, secret.label);
       }
@@ -175,14 +224,14 @@ export class CalendarConnections {
     this.d.calendar.detach(id);
     await this.d.vault.revoke(id);
     await this.d.db.query('UPDATE account_connection SET connected = false, revoked_at = now() WHERE id = $1', [id]);
-    this.d.capabilities.markDisconnected(id.startsWith('icloud:') ? 'icloud_calendar' : 'google_calendar_ics', 'disconnected by Bruno');
+    this.d.capabilities.markDisconnected(connectorOf(id), 'disconnected by Bruno');
     this.d.audit.record(actor, 'connector.disconnected', id, {});
   }
 
   async syncNow(): Promise<{ events: number; errors: string[] }> {
     const r = await this.d.calendar.sync();
     for (const remote of this.d.calendar.remotes) {
-      const connector = remote.id.startsWith('icloud:') ? 'icloud_calendar' : 'google_calendar_ics';
+      const connector = connectorOf(remote.id);
       const failed = r.errors.find((e) => e.startsWith(`${remote.label}:`));
       if (!failed) {
         this.d.capabilities.recordSync(connector);
