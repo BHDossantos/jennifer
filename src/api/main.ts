@@ -120,6 +120,8 @@ const retentionRun = () => {
   void j.retention.purge().catch((e) => app.log.error(e));
   // Nightly learning: turn Bruno's edits into style rules.
   void j.styleLearner.learn().catch((e) => app.log.error(e));
+  // Workforce do-not-contact list → Jennifer's suppressions, so "stop" holds in both systems.
+  if (j.workforce.configured) void j.workforce.syncDoNotContact(j.suppressions).catch((e) => app.log.error(e));
 };
 const retentionTimer = setInterval(retentionRun, 24 * 3600_000);
 retentionTimer.unref();

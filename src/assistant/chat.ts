@@ -13,7 +13,7 @@ import { personaInstructions, DEFAULT_VOICE, type DeliveryMode } from '../voice/
  * Bruno states are remembered only when the memory quotes his own words;
  * anything else (e.g. inspired by an email) waits for review.
  */
-const CHAT_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'get_calendar', 'find_free_slots', 'propose_event', 'search_ai_history', 'read_ai_conversation', 'web_search', 'read_web_page', 'ask_ai', 'company_overview', 'start_company_workflow', 'ask_claude_to_do'];
+const CHAT_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'get_calendar', 'find_free_slots', 'propose_event', 'search_ai_history', 'read_ai_conversation', 'web_search', 'read_web_page', 'ask_ai', 'company_overview', 'start_company_workflow', 'ask_claude_to_do', 'workforce_overview', 'workforce_search_crm', 'workforce_pending'];
 const MAX_HISTORY = 40;
 
 interface ChatSession {
@@ -37,7 +37,7 @@ export class ChatService {
     const remembered: string[] = [];
     const pendingReview: string[] = [];
 
-    const ctx: ToolContext = { ownerId: this.d.ownerId, role: 'chat', allowedTools: new Set(CHAT_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read', 'web:read', 'company:read', 'company:run', 'delegate:propose']) };
+    const ctx: ToolContext = { ownerId: this.d.ownerId, role: 'chat', allowedTools: new Set(CHAT_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read', 'web:read', 'company:read', 'company:run', 'delegate:propose', 'workforce:read']) };
     const specs: ToolSpec[] = this.d.tools.forRole(ctx).map((t) => {
       const { $schema: _s, ...parameters } = t.schema as Record<string, unknown>;
       return { name: t.name, description: t.description, parameters };

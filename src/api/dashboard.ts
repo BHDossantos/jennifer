@@ -170,7 +170,15 @@ const views = {
         <li>Trigger: <b>API</b>. Save, then copy the URL and <b>Generate token</b>.</li>
         <li>In Render → jennifer → Environment, set <code>CLAUDE_ROUTINE_URL</code> and <code>CLAUDE_ROUTINE_TOKEN</code>, save, and wait for the redeploy.</li></ol>
       <textarea id="rprompt" rows="8" readonly>\${esc(dg.routinePrompt)}</textarea><button class="btn" data-copyprompt="1">Copy instructions</button></details></div>\` : '';
-    return gmailCard + calCard + claudeCard + (await api('/v1/connections')).map(c => \`<div class="card"><strong>\${esc(c.provider)}</strong> <span class="\${c.connected ? 'good' : 'bad'}">\${c.connected ? 'connected' : 'not connected'}</span>
+    const wf = await api('/v1/connectors/workforce').catch(() => null);
+    const wfCard = wf ? \`<div class="card"><strong>Bruno AI Workforce</strong> <span class="\${wf.configured && !wf.error ? 'good' : 'bad'}">\${wf.configured ? (wf.error ? 'problem' : 'connected' + (wf.readOnly ? ' · read-only' : '')) : 'not connected'}</span>
+      \${wf.error ? '<div class="bad">' + esc(wf.error) + '</div>' : ''}
+      \${wf.configured && wf.role && wf.role !== 'viewer' ? '<div class="bad">Signed in as ' + esc(wf.role) + '. Use a viewer account: Jennifer only reads.</div>' : ''}
+      \${wf.businesses && wf.businesses.length ? '<div class="muted">Businesses: ' + esc(wf.businesses.map((b) => b.label).join(', ')) + '</div>' : ''}
+      <p class="muted">Jennifer reads your Workforce brief, CRM, approvals, decisions and do-not-contact list. She never sends through Workforce.</p>
+      \${wf.configured ? '<div class="row"><button class="btn" data-wfdnc="1">Sync do-not-contact list now</button></div>' : '<p class="muted">In Render → jennifer → Environment set <code>WORKFORCE_URL</code>, <code>WORKFORCE_EMAIL</code> and <code>WORKFORCE_PASSWORD</code> (a Workforce user with the <b>viewer</b> role).</p>'}
+      \${wf.webhookUrl ? '<details><summary>Lead-reply alerts</summary><p class="muted">In Workforce add a webhook: URL <code>' + esc(wf.webhookUrl) + '</code>, events <code>lead.replied</code>, and a secret; put the same secret in Render as <code>WORKFORCE_WEBHOOK_SECRET</code>.</p></details>' : ''}</div>\` : '';
+    return gmailCard + calCard + claudeCard + wfCard + (await api('/v1/connections')).map(c => \`<div class="card"><strong>\${esc(c.provider)}</strong> <span class="\${c.connected ? 'good' : 'bad'}">\${c.connected ? 'connected' : 'not connected'}</span>
       <div class="muted">Monitoring: \${c.canMonitor ? 'yes' : 'no'} · Last sync: \${esc(c.lastSync || 'never')}</div>
       <div>Can: \${esc(c.actions.join(', ') || 'nothing yet')}</div><div class="muted">Unavailable: \${esc(c.unavailable.join(', '))}</div>
       \${c.problem ? '<div class="bad">' + esc(c.problem) + '</div>' : ''}</div>\`).join('');
@@ -301,6 +309,7 @@ document.addEventListener('click', async (e) => {
     $('#status').textContent = 'Result: ' + r.state; return show(current); }
   if (t.dataset.cancel) { const w = document.querySelector('[data-why="' + t.dataset.cancel + '"]'); await api('/v1/actions/' + t.dataset.cancel + '/cancel', { method: 'POST', body: JSON.stringify({ reason: w ? w.value : 'rejected' }) }); return show(current); }
   if (t.dataset.edit) { const el = $('#edit-' + t.dataset.edit); el.hidden = !el.hidden; return; }
+  if (t.dataset.wfdnc) { try { const r = await api('/v1/connectors/workforce/sync-dnc', { method: 'POST', body: '{}' }); $('#status').textContent = 'Do-not-contact: ' + r.added + ' new of ' + r.total + '.'; } catch (err) { $('#status').textContent = 'Workforce: ' + err.message; } return; }
   if (t.dataset.copyprompt) { try { await navigator.clipboard.writeText($('#rprompt').value); $('#status').textContent = 'Copied. Paste it into your Claude routine.'; } catch { $('#rprompt').select(); } return; }
   if (t.dataset.saveedit) {
     const id = t.dataset.saveedit; const a = await api('/v1/actions/' + id);

@@ -34,6 +34,13 @@ const ConfigSchema = z.object({
     /** Bruno's chosen ElevenLabs voice (elevenlabs.io/voices/LM5QaByxyWDmNhcQTYiS). */
     voiceId: z.string().regex(/^[A-Za-z0-9]{8,40}$/).default('LM5QaByxyWDmNhcQTYiS'),
   }),
+  /** Bruno AI Workforce, read-only (viewer account). */
+  workforce: z.object({
+    url: z.string().url().optional(),
+    email: z.string().optional(),
+    password: z.string().optional(),
+    webhookSecret: z.string().min(16).optional(),
+  }),
   /** Claude Code Routine that does hands-on tasks with Bruno's claude.ai connectors. */
   claudeRoutine: z.object({
     url: z.string().url().optional(),
@@ -107,6 +114,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     anthropic: { apiKey: env.ANTHROPIC_API_KEY || undefined, model: env.JENNIFER_CLAUDE_MODEL || undefined, effort: env.JENNIFER_CLAUDE_EFFORT || undefined },
     elevenlabs: { apiKey: env.ELEVENLABS_API_KEY || undefined, model: env.JENNIFER_ELEVENLABS_MODEL || undefined, voiceId: env.JENNIFER_ELEVENLABS_VOICE_ID || undefined },
+    workforce: { url: env.WORKFORCE_URL?.trim() || undefined, email: env.WORKFORCE_EMAIL?.trim() || undefined, password: env.WORKFORCE_PASSWORD || undefined, webhookSecret: env.WORKFORCE_WEBHOOK_SECRET?.trim() || undefined },
     claudeRoutine: { url: env.CLAUDE_ROUTINE_URL?.trim() || undefined, token: env.CLAUDE_ROUTINE_TOKEN?.trim() || undefined },
     modelProvider: env.MODEL_PROVIDER || undefined,
     sms: {

@@ -227,6 +227,14 @@ Errors are JSON: `{ "error": "<code>", "message": "..." }` — `409` for policy/
 | POST | `/v1/webhooks/imessage` | provider signature |  |
 | POST | `/v1/webhooks/email/:connectorId` | provider signature |  |
 
+### Bruno AI Workforce (read-only)
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/v1/connectors/workforce` | owner |  |
+| POST | `/v1/connectors/workforce/sync-dnc` | owner | Copy Workforce's do-not-contact list into Jennifer's suppressions. |
+| POST | `/v1/webhooks/workforce` | provider signature |  |
+
 ### Claude delegation (Claude Code Routine)
 
 | Method | Path | Auth | Notes |

@@ -344,8 +344,8 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
 
   // ---- Voice -----------------------------------------------------------------
-  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'search_ai_history', 'web_search', 'ask_ai', 'company_overview', 'start_company_workflow', 'ask_claude_to_do'];
-  const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read', 'web:read', 'company:read', 'company:run', 'delegate:propose']) };
+  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'search_ai_history', 'web_search', 'ask_ai', 'company_overview', 'start_company_workflow', 'ask_claude_to_do', 'workforce_overview', 'workforce_search_crm', 'workforce_pending'];
+  const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read', 'web:read', 'company:read', 'company:run', 'delegate:propose', 'workforce:read']) };
   type StoredVoice = VoiceSettings & { mode: 'private' | 'business' };
   const voiceSettings = async (): Promise<StoredVoice> => {
     const stored = { ...DEFAULT_VOICE, voiceId: 'marin', mode: 'private' as const, ...(await j.settings.get<StoredVoice>('voice')) };
@@ -890,6 +890,46 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     const { event, duplicate } = await j.inbound.receive(email);
     if (!duplicate) setImmediate(() => void j.inbound.process(event, email, { autoDraft: true }).catch((e) => app.log.error(redactSecrets(String(e)))));
     return reply.code(202).send({ eventId: event.eventId, duplicate });
+  });
+
+  // ---- Bruno AI Workforce (read-only) -------------------------------------------
+  app.get('/v1/connectors/workforce', owner, async () => {
+    const w = j.workforce;
+    if (!w.configured) return { configured: false, webhookUrl: j.config.publicUrl ? `${j.config.publicUrl.replace(/\/$/, '')}/v1/webhooks/workforce` : undefined };
+    let businesses: Array<{ key: string; label: string }> = [];
+    let error: string | undefined;
+    try {
+      businesses = (await w.businesses()).businesses.map((b) => ({ key: b.key, label: b.label }));
+    } catch (e) {
+      error = (e as Error).message;
+    }
+    return { configured: true, role: w.role, readOnly: w.role === 'viewer', businesses, error, webhookSigned: !!j.config.workforce.webhookSecret, webhookUrl: j.config.publicUrl ? `${j.config.publicUrl.replace(/\/$/, '')}/v1/webhooks/workforce` : undefined, lastSync: w.lastSync };
+  });
+  /** Copy Workforce's do-not-contact list into Jennifer's suppressions. */
+  app.post('/v1/connectors/workforce/sync-dnc', owner, async () => j.workforce.syncDoNotContact(j.suppressions));
+  /** Workforce's signed outgoing webhooks (lead.replied, client.*): alerts only, never acted on automatically. */
+  const seenWorkforce = new Map<string, number>();
+  app.post('/v1/webhooks/workforce', { bodyLimit: 256 * 1024 }, async (req, reply) => {
+    if (!j.config.workforce.webhookSecret) return reply.code(503).send({ error: 'workforce webhook not configured' });
+    const raw = req.rawBody ?? '';
+    if (!j.workforce.verifyWebhook(raw, req.headers['x-bruno-signature'] as string | undefined)) return reply.code(401).send({ error: 'bad signature' });
+    // Workforce signs no timestamp: drop exact replays for a day.
+    const key = createHash('sha256').update(raw).digest('hex');
+    const now = j.clock.now().getTime();
+    for (const [k, t] of seenWorkforce) if (now - t > 86_400_000) seenWorkforce.delete(k);
+    if (seenWorkforce.has(key)) return { ok: true, duplicate: true };
+    seenWorkforce.set(key, now);
+    const b = z.object({ event: z.string().max(80), data: z.record(z.string(), z.unknown()).default({}), sent_at: z.string().optional() }).safeParse(req.body);
+    if (!b.success) return reply.code(400).send({ error: 'invalid payload' });
+    const d = b.data.data;
+    const clean = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+    j.audit.record(j.ownerId, 'workforce.event', undefined, { event: b.data.event });
+    if (b.data.event === 'lead.replied') {
+      await j.notifications
+        .notify({ kind: 'message', title: `Lead replied: ${clean(d.sender, 80) || 'unknown sender'}`, body: [clean(d.intent, 40), clean(d.summary || d.subject, 200)].filter(Boolean).join(' · '), url: '/?tab=inbox', dedupKey: `workforce:${key.slice(0, 24)}` })
+        .catch(() => undefined);
+    }
+    return { ok: true };
   });
 
   // ---- Claude delegation (Claude Code Routine) ---------------------------------

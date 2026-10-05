@@ -29,6 +29,14 @@ services:
         sync: false
       - key: JENNIFER_ELEVENLABS_VOICE_ID  # Jennifer's voice (elevenlabs.io/voices/LM5QaByxyWDmNhcQTYiS)
         value: LM5QaByxyWDmNhcQTYiS
+      - key: WORKFORCE_URL           # Bruno AI Workforce backend (read-only connector)
+        value: https://ai-workforce-746155486511.europe-west1.run.app
+      - key: WORKFORCE_EMAIL         # a Workforce user with the viewer role
+        sync: false
+      - key: WORKFORCE_PASSWORD
+        sync: false
+      - key: WORKFORCE_WEBHOOK_SECRET  # same secret as the Workforce webhook for lead.replied
+        generateValue: true
       - key: CLAUDE_ROUTINE_URL      # optional: Claude does approved tasks with your claude.ai connectors (claude.ai/code/routines → API trigger URL)
         sync: false
       - key: CLAUDE_ROUTINE_TOKEN    # the routine's API trigger token (shown once when you click Generate token)

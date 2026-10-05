@@ -37,6 +37,7 @@ import { WhatsAppCloud } from './connectors/whatsapp/cloud.js';
 import { ChainedVoice } from './voice/chained.js';
 import { ElevenLabsTTS } from './voice/elevenlabs.js';
 import { ClaudeRoutineDelegate, DelegateTaskHandler } from './delegate/claudeRoutine.js';
+import { WorkforceClient } from './connectors/workforce.js';
 import { CostLedger, DEFAULT_PRICING, MeteredModel, MeteredToolModel, type Pricing } from './ops/costs.js';
 import { FeedbackStore, ModelRegistry, type FeedbackKind } from './learning/feedback.js';
 import type { ControlsSnapshot, SuppressionRule } from './policy/controls.js';
@@ -98,7 +99,7 @@ export interface JenniferOptions {
 export function createJennifer(opts: JenniferOptions = {}) {
   const clock = opts.clock ?? systemClock;
   const base = loadConfig({ ...process.env, JENNIFER_ENV: process.env.JENNIFER_ENV ?? 'development' });
-  const config: Config = { ...base, ...opts.config, openai: { ...base.openai, ...opts.config?.openai }, claudeRoutine: { ...base.claudeRoutine, ...opts.config?.claudeRoutine }, elevenlabs: { ...base.elevenlabs, ...opts.config?.elevenlabs }, budgets: { ...base.budgets, ...opts.config?.budgets } };
+  const config: Config = { ...base, ...opts.config, openai: { ...base.openai, ...opts.config?.openai }, claudeRoutine: { ...base.claudeRoutine, ...opts.config?.claudeRoutine }, workforce: { ...base.workforce, ...opts.config?.workforce }, elevenlabs: { ...base.elevenlabs, ...opts.config?.elevenlabs }, budgets: { ...base.budgets, ...opts.config?.budgets } };
   const ownerId = config.ownerId;
 
   const audit = new AuditLog(clock);
@@ -145,6 +146,8 @@ export function createJennifer(opts: JenniferOptions = {}) {
   actions.register(new CalendarActionHandler('modify_event', calendar, contacts, capabilities));
   const claudeDelegate = new ClaudeRoutineDelegate({ routineUrl: config.claudeRoutine.url, token: config.claudeRoutine.token, callbackBase: config.publicUrl, secret: config.webhookSecret, fetchImpl: opts.fetchImpl, now: () => clock.now() });
   actions.register(new DelegateTaskHandler(claudeDelegate, () => clock.now()));
+  const workforce = new WorkforceClient({ ...config.workforce, fetchImpl: opts.fetchImpl, now: () => clock.now().getTime() });
+  if (workforce.configured) capabilities.markConnected('workforce', 'workforce', 'Bruno AI Workforce (read-only)');
 
   const settings = opts.settings ?? new MemorySettings();
   const pricing = process.env.JENNIFER_PRICING_JSON ? { ...DEFAULT_PRICING, ...(JSON.parse(process.env.JENNIFER_PRICING_JSON) as Partial<Pricing>) } : DEFAULT_PRICING;
@@ -375,6 +378,42 @@ export function createJennifer(opts: JenniferOptions = {}) {
     },
   });
   tools.register({
+    name: 'workforce_overview',
+    description: "Bruno AI Workforce (his outreach/CRM platform for Thrust Insurance, B&B Global, SavoryMind...): today's brief with top actions, the dashboard summary, and how many items wait for approval inside Workforce. Read-only.",
+    input: z.object({}),
+    requiredScopes: ['workforce:read'],
+    sideEffect: 'read',
+    timeoutMs: 20_000,
+    rateLimitPerMinute: 10,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async () => workforce.overview(),
+  });
+  tools.register({
+    name: 'workforce_search_crm',
+    description: 'Search contacts and leads in Bruno AI Workforce by name, company, email or phone. Read-only.',
+    input: z.object({ query: z.string().min(1).max(200), limit: z.number().int().min(1).max(50).default(15) }),
+    requiredScopes: ['workforce:read'],
+    sideEffect: 'read',
+    timeoutMs: 20_000,
+    rateLimitPerMinute: 20,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i) => workforce.searchCrm(i.query, i.limit),
+  });
+  tools.register({
+    name: 'workforce_pending',
+    description: 'What is waiting in Bruno AI Workforce: items in its approval queue (content, leads, replies) and recent business decisions with their status. Read-only; approving still happens in Workforce.',
+    input: z.object({ include: z.enum(['approvals', 'decisions', 'both']).default('both') }),
+    requiredScopes: ['workforce:read'],
+    sideEffect: 'read',
+    timeoutMs: 20_000,
+    rateLimitPerMinute: 10,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i) => ({
+      approvals: i.include !== 'decisions' ? await workforce.approvals(30) : undefined,
+      decisions: i.include !== 'approvals' ? ((await workforce.decisions()) as unknown[]).slice(0, 20) : undefined,
+    }),
+  });
+  tools.register({
     name: 'ask_claude_to_do',
     description:
       "Ask Claude to carry out a hands-on task in Bruno's own accounts (book or move calendar events, file or label email, update documents, schedule social posts...) using the connectors on his Claude account. Write the task as one complete, specific instruction with dates, times, time zone and names. It runs only after Bruno approves the exact wording. Never use it to contact someone who has not written to Bruno first, to pay, or to change security settings.",
@@ -521,6 +560,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     chainedVoice,
     elevenlabs,
     claudeDelegate,
+    workforce,
     costs,
     metrics,
     retention,
