@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-const src = readFileSync('src/api/server.ts', 'utf8');
+const src = readFileSync('src/api/server.ts', 'utf8') + '\n// ---- Company OS ----\n' + readFileSync('src/api/companyRoutes.ts', 'utf8');
 const lines = src.split('\n');
 const out: string[] = ['| Method | Path | Auth | Notes |', '|---|---|---|---|'];
 let lastComment = '';

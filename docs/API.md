@@ -9,6 +9,7 @@ Errors are JSON: `{ "error": "<code>", "message": "..." }` — `409` for policy/
 | GET | `/health` | public |  |
 | GET | `/` | public |  |
 | GET | `/manifest.webmanifest` | public |  |
+| GET | `/company.js` | public |  |
 | GET | `/sw.js` | public |  |
 | GET | `/icon-192.png` | public |  |
 | GET | `/icon-512.png` | public |  |
@@ -135,6 +136,8 @@ Errors are JSON: `{ "error": "<code>", "message": "..." }` — `409` for policy/
 | GET | `/v1/connectors/calendar` | owner |  |
 | POST | `/v1/connectors/icloud-calendar/connect` | owner |  |
 | POST | `/v1/connectors/calendar-feed/connect` | owner |  |
+| POST | `/v1/connectors/google-calendar/start` | owner | Google Calendar read/write: start Google sign-in (sensitive), then Google redirects to the callback. |
+| GET | `/v1/connectors/google-calendar/callback` | public | Public by necessity (Google's browser redirect); authorized by the single-use state created above. |
 | POST | `/v1/connectors/calendar/sync` | owner |  |
 | POST | `/v1/connectors/calendar/:id/disconnect` | owner |  |
 
@@ -207,4 +210,70 @@ Errors are JSON: `{ "error": "<code>", "message": "..." }` — `409` for policy/
 | Method | Path | Auth | Notes |
 |---|---|---|---|
 | POST | `/v1/webhooks/sms` | provider signature |  |
+
+### WhatsApp Business (Meta Cloud API webhook)
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/v1/webhooks/whatsapp` | provider signature | Meta's one-time verification handshake when the webhook is registered. |
+| POST | `/v1/webhooks/whatsapp` | provider signature |  |
+
+### iMessage / SMS from Bruno's Mac (BlueBubbles Server webhook)
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/v1/webhooks/imessage` | provider signature |  |
 | POST | `/v1/webhooks/email/:connectorId` | provider signature |  |
+
+### Company OS
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/v1/companies` | owner |  |
+| PUT | `/v1/companies/:cid/profile` | owner |  |
+| POST | `/v1/companies/:cid/status` | owner | Company-scoped emergency stop: no new runs or side effects; open runs are cancelled. |
+
+### Organization map and directory
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/v1/companies/:cid/map` | owner |  |
+| GET | `/v1/companies/:cid/roles` | owner |  |
+| GET | `/v1/companies/:cid/roles/:rid` | owner |  |
+| GET | `/v1/workflows` | owner |  |
+
+### Runs
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/v1/companies/:cid/runs` | owner |  |
+| GET | `/v1/companies/:cid/runs` | owner |  |
+| GET | `/v1/companies/:cid/runs/:rid` | owner |  |
+| POST | `/v1/companies/:cid/runs/:rid/cancel` | owner |  |
+| GET | `/v1/companies/:cid/runs/:rid/events` | owner | Ordered persisted events; Server-Sent Events when asked, resuming after Last-Event-ID. |
+
+### Artifacts and approval queue
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/v1/companies/:cid/artifacts` | owner |  |
+| POST | `/v1/companies/:cid/artifacts/:aid/review` | owner |  |
+| POST | `/v1/companies/:cid/artifacts/:aid/prepare-send` | owner |  |
+| GET | `/v1/companies/:cid/approvals` | owner |  |
+
+### Company brain
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/v1/companies/:cid/knowledge/sources` | owner |  |
+| POST | `/v1/companies/:cid/knowledge/sources` | owner |  |
+| POST | `/v1/companies/:cid/knowledge/sources/:sid/review` | owner |  |
+| POST | `/v1/companies/:cid/knowledge/search` | owner |  |
+
+### CRM
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/v1/companies/:cid/crm` | owner |  |
+| POST | `/v1/companies/:cid/crm/records` | owner |  |
+| POST | `/v1/companies/:cid/crm/patches/:pid` | owner |  |

@@ -48,6 +48,10 @@ Bruno's persistent executive assistant: backend foundation, policy engine, durab
     - In Render set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, then in Connections tap **Connect Google Calendar (read & write)**. New events then go to Google; edits go back to whichever calendar the event lives in.
 13. **Autopilot:** Settings → **Turn on Autopilot** lets Jennifer reply on her own, in real time, to people you know when they write to you, on every connected account. She never starts a conversation or sends an invitation on her own: ask her, then approve. Strangers, attachments, money, contracts and security changes still come to you. Turn it off with one tap.
 
+## Company OS
+
+Jennifer also runs your companies: open the **Company** tab for the organization map (7 departments, 137 role definitions, of which the 12 pilot roles are real), the company brain, CRM, runs and an approval queue for each company (insurance pilot, technology, music, restaurant, United Youth Orchestra). Three workflows are live: daily executive brief, incoming reply → next action, and prospect research → reviewed drafts. Nothing is sent without you. See `docs/COMPANY_OS.md` for what is built, the rules it enforces and the launch checklist.
+
 ## ChatGPT and Claude: what Jennifer can and cannot see
 
 Jennifer does **not** log in to your ChatGPT or Claude accounts, and an API key does not give access to your chat history (API keys only run new requests). Reusing your passwords or browser cookies would break both services' terms and the spec's security rule (§11), and a stolen session would expose everything. Instead:
@@ -123,6 +127,7 @@ Node ≥ 20. Copy `.env.example` to `.env` for configuration. Set `JENNIFER_SEED
 | `src/voice/chained.ts` | §8 | Push-to-talk: transcription → Jennifer → speech, with pronunciations and per-stage latency |
 | `src/research/web.ts` | §12 | Web search (provider-hosted) and safe page reading for chat, missions and voice |
 | `src/ops/` | §17, §18 | Cost ledger with monthly ceiling, metrics, retention job |
+| `src/company/`, `public/company.js` | Company OS | Companies, 137-role catalog, role executor, runs/events, company brain, CRM, WF-01/02/03, command center |
 | `docs/API.md`, `docs/SPEC_COVERAGE.md` | §15, §21 | Endpoint reference; section-by-section coverage of the spec with honest status |
 
 ## Architecture notes
