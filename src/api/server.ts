@@ -70,7 +70,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
 
   const auth = (...roles: Role[]) => async (req: FastifyRequest, reply: FastifyReply) => {
     const h = req.headers.authorization ?? '';
-    const token = h.startsWith('Bearer ') ? h.slice(7) : '';
+    const token = h.startsWith('Bearer ') ? h.slice(7).trim() : '';
     const d = digest(token);
     const match = token ? tokenDigests.find((t) => timingSafeEqual(t.d, d)) : undefined;
     let role = match?.role;

@@ -75,7 +75,16 @@ async function passkeyCreate(o) {
 }
 async function signIn() {
   const o = await fetch('/v1/auth/passkeys/login/options', { method: 'POST' }).then((r) => r.json());
-  if (!o.handle) { const t = prompt('No passkey yet. Enter the bootstrap owner token to register this device:'); if (t) { saveToken(t); await registerDevice(); } return; }
+  if (!o.handle) {
+    const t = (prompt('No passkey yet. Paste JENNIFER_API_TOKEN from Render (jennifer service → Environment) to register this device:') || '').trim();
+    if (!t) return;
+    saveToken(t);
+    try { await registerDevice(); } catch (err) {
+      if (/unauthorized/i.test(err.message)) { saveToken(''); throw new Error('that code doesn\u2019t match JENNIFER_API_TOKEN in Render. Copy it again (eye icon → copy) and retry.'); }
+      throw err;
+    }
+    return;
+  }
   const r = await fetch('/v1/auth/passkeys/login/verify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ handle: o.handle, response: await passkeyGet(o.options) }) }).then((r) => r.json());
   if (r.token) { saveToken(r.token); show('today'); }
 }

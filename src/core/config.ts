@@ -88,7 +88,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port: env.PORT,
     ownerId: env.JENNIFER_OWNER_ID,
     homeTimeZone: env.JENNIFER_HOME_TZ,
-    apiToken: env.JENNIFER_API_TOKEN,
+    apiToken: env.JENNIFER_API_TOKEN?.trim() || undefined,
     webhookSecret: env.JENNIFER_WEBHOOK_SECRET,
     openai: {
       apiKey: env.OPENAI_API_KEY,
