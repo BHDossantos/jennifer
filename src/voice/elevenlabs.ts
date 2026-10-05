@@ -22,7 +22,6 @@ export interface ElevenVoice {
 /** Voices Bruno picked on elevenlabs.io; always offered, even before they are added to "My Voices". */
 export const PINNED_VOICES: Array<{ voiceId: string; name: string; note: string }> = [
   { voiceId: 'LM5QaByxyWDmNhcQTYiS', name: 'Jennifer', note: 'your pick' },
-  { voiceId: 'kLhAstPcnnPxqzk6gS5i', name: 'Jennifer (alternative)', note: 'from your code sample' },
 ];
 
 /** Models with expressive audio tags ([soft], [whisper]...) and the coarse stability scale. */

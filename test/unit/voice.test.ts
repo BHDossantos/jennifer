@@ -175,7 +175,7 @@ describe('ElevenLabs British voices', () => {
   it('lists female voices with British accents first and never leaks the API key', async () => {
     const { app, auth, calls } = await setup();
     const res = await app.inject({ method: 'GET', url: '/v1/voice/elevenlabs/voices', headers: auth });
-    expect(res.json().voices.map((v: { voiceId: string }) => v.voiceId)).toEqual(['LM5QaByxyWDmNhcQTYiS', 'kLhAstPcnnPxqzk6gS5i', 'BritishVoice001', 'AmericanVoice01']);
+    expect(res.json().voices.map((v: { voiceId: string }) => v.voiceId)).toEqual(['LM5QaByxyWDmNhcQTYiS', 'BritishVoice001', 'AmericanVoice01']);
     expect(res.json().voices[0]).toMatchObject({ recommended: true, inAccount: false });
     expect(res.body).not.toContain(XI_KEY);
     expect(calls[0]!.headers['xi-api-key']).toBe(XI_KEY);
