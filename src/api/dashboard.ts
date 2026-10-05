@@ -34,6 +34,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   .btn { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:8px 12px; font:inherit; cursor:pointer; }
   .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
   .btn.danger { color:var(--warn); }
+  #talknow { position:fixed; inset:0; z-index:20; border:0; background:var(--accent); color:#fff; font-size:22px; padding:24px; }
   #voice { width:56px; height:56px; border-radius:50%; border:0; background:var(--accent); color:#fff; position:fixed; right:16px; bottom:16px; font-size:13px; }
   @media (prefers-reduced-motion: no-preference) { #voice[data-state="listening"] { animation: pulse 1.6s infinite; } }
   @keyframes pulse { 50% { box-shadow:0 0 0 12px color-mix(in srgb, var(--accent) 25%, transparent); } }
@@ -258,6 +259,14 @@ const views = {
       \`<div class="card"><strong>Delivery</strong>\${slider('warmth', 0, 1, 0.1)}\${slider('playfulness', 0, 1, 0.1)}\${slider('speakingRate', 0.75, 1.25, 0.05)}
       <label>Mode <select data-voiceset="mode"><option value="private" \${s.mode === 'private' ? 'selected' : ''}>Private (with you)</option><option value="business" \${s.mode === 'business' ? 'selected' : ''}>Business</option></select></label>
       <label>Accent <select data-voiceset="accent">\${['british', 'american', 'australian', 'neutral'].map((a) => \`<option value="\${a}" \${(s.accent || 'british') === a ? 'selected' : ''}>\${a[0].toUpperCase() + a.slice(1)}</option>\`).join('')}</select></label></div>\`
+      + \`<div class="card"><strong>Voice activation</strong>
+      <label><input type="checkbox" style="width:auto;display:inline;margin-right:8px" data-wake="1" \${wakeOn ? 'checked' : ''}> Hands-free: say <b>“Hey Jennifer”</b> while Jennifer is open</label>
+      <p class="muted">iPhone only lets apps listen in the background through Siri. With Jennifer open on screen, just say her name and she answers. She hangs up after a minute of silence and goes back to listening.</p>
+      <details><summary>“Hey Siri, Jennifer” and the Action button</summary><ol>
+        <li>Open the <b>Shortcuts</b> app → <b>+</b> → <b>Add Action</b> → <b>Open URLs</b>.</li>
+        <li>Paste <code id="talkurl">\${esc(location.origin + '/?talk=1')}</code> <button class="btn" data-copytalk="1">Copy</button></li>
+        <li>Name the shortcut <b>Jennifer</b>. Now say <b>“Hey Siri, Jennifer”</b>: she opens and starts talking (confirm with Face ID if asked).</li>
+        <li>Optional: Settings → <b>Action Button</b> → Shortcut → <b>Jennifer</b>, so one press starts a conversation.</li></ol></details></div>\`
       + \`<div class="card"><strong>Push to talk (exact transcript)</strong>
       <p class="muted">Slower than the Talk button, but you see exactly what was heard and said. Hold the button while you speak.</p>
       <button class="btn primary" id="ptt" aria-label="Hold to talk">Hold to talk</button><div id="pttlog" aria-live="polite"></div></div>
@@ -349,6 +358,9 @@ document.addEventListener('click', async (e) => {
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'jennifer-memory.json'; link.click(); URL.revokeObjectURL(url); return;
   }
+  if (t.id === 'talknow') { t.remove(); return talkNow(); }
+  if (t.dataset.wake) { wakeOn = t.checked; try { localStorage.setItem('jennifer_wake', wakeOn ? '1' : '0'); } catch {} if (wakeOn) { if (!SR) { $('#status').textContent = 'This browser cannot listen for “Hey Jennifer”. Use the Siri shortcut instead.'; t.checked = wakeOn = false; return; } wakeStart(); } else wakeStop(); return; }
+  if (t.dataset.copytalk) { try { await navigator.clipboard.writeText($('#talkurl').textContent); $('#status').textContent = 'Copied.'; } catch {} return; }
   if (t.id === 'voice') return rtc ? stopVoice() : startVoice().catch((err) => { stopVoice(); $('#status').textContent = 'Voice: ' + err.message; });
   if (t.dataset.audition) {
     t.disabled = true;
@@ -517,13 +529,51 @@ async function startVoice() {
   const ans = await fetch(s.callsUrl, { method: 'POST', body: offer.sdp, headers: { authorization: 'Bearer ' + s.clientSecret, 'content-type': 'application/sdp' } });
   if (!ans.ok) throw new Error('voice connection refused (' + ans.status + ')');
   await pc.setRemoteDescription({ type: 'answer', sdp: await ans.text() });
-  rtc = { pc, mic, dc, audio, startedAt: Date.now() };
+  rtc = { pc, mic, dc, audio, startedAt: Date.now(), lastActivity: Date.now() };
+  dc.addEventListener('message', () => { if (rtc) rtc.lastActivity = Date.now(); });
   setVoice('listening');
 }
+// Hands-free sessions hang up after a minute of silence and go back to listening for her name.
+setInterval(() => { if (rtc && wakeOn && Date.now() - rtc.lastActivity > 60_000) stopVoice(); }, 5000);
 function stopVoice() {
   if (rtc && rtc.startedAt) api('/v1/voice/usage', { method: 'POST', body: JSON.stringify({ seconds: Math.round((Date.now() - rtc.startedAt) / 1000) }) }).catch(() => {});
   if (rtc) { try { rtc.dc.close(); } catch {} rtc.mic.getTracks().forEach((t) => t.stop()); rtc.pc.close(); rtc = null; }
   setVoice('offline');
+  setTimeout(wakeStart, 800);
+}
+// ---- Voice activation: "Hey Jennifer" while the app is open, and /?talk=1 (Siri shortcut, Action button).
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let wakeOn = false; let wake = null;
+try { wakeOn = localStorage.getItem('jennifer_wake') === '1'; } catch {}
+const WAKE = /\\b(jennifer|jenny|jenifer)\\b/i;
+function wakeStart() {
+  if (!SR || !wakeOn || rtc || wake || document.hidden || !token) return;
+  const r = new SR();
+  r.continuous = true; r.interimResults = true;
+  r.lang = { en: 'en-GB', 'pt-BR': 'pt-BR', es: 'es-ES', it: 'it-IT' }[voiceLang()] || 'en-GB';
+  r.onresult = (ev) => {
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      if (WAKE.test(ev.results[i][0].transcript)) {
+        wakeStop();
+        startVoice().catch((err) => { stopVoice(); $('#status').textContent = 'Voice: ' + err.message; });
+        return;
+      }
+    }
+  };
+  r.onerror = (ev) => { if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { wakeOn = false; $('#status').textContent = 'Hands-free needs microphone permission.'; } };
+  r.onend = () => { if (wake === r) { wake = null; setTimeout(wakeStart, 400); } };
+  try { r.start(); wake = r; $('#status').textContent = 'Say “Hey Jennifer”'; } catch { wake = null; }
+}
+function wakeStop() { const r = wake; wake = null; if (r) { r.onend = null; try { r.abort(); } catch {} } }
+document.addEventListener('visibilitychange', () => (document.hidden ? wakeStop() : wakeStart()));
+async function talkNow() {
+  try { if (!token) await signIn(); if (!rtc) await startVoice(); }
+  catch (err) { stopVoice(); $('#status').textContent = 'Voice: ' + err.message; }
+}
+function talkPrompt() {
+  if (document.getElementById('talknow')) return;
+  const b = document.createElement('button'); b.id = 'talknow'; b.textContent = 'Tap to talk to Jennifer'; b.setAttribute('aria-label', 'Tap to talk to Jennifer');
+  document.body.appendChild(b);
 }
 // ---- Push to talk: chained speech → Jennifer → speech, with exact transcripts.
 let ptt = null; let pttSession = null;
@@ -562,6 +612,10 @@ const startTab = new URLSearchParams(location.search).get('tab');
 const googleResult = new URLSearchParams(location.search).get('google');
 if (googleResult) setTimeout(() => { $('#status').textContent = googleResult === 'connected' ? 'Google Calendar connected.' : 'Google Calendar: ' + googleResult; }, 500);
 if (token) show(startTab && views[startTab] ? startTab : 'today'); else $('#view').innerHTML = '<p class="muted">Sign in with your passkey to continue.</p>';
+if (new URLSearchParams(location.search).get('talk') === '1') {
+  // Opened by "Hey Siri, Jennifer" or the Action button: start talking straight away when the browser allows it, else one tap.
+  if (token) startVoice().catch(() => { stopVoice(); talkPrompt(); }); else talkPrompt();
+} else setTimeout(wakeStart, 1000);
 </script>
 <script src="/company.js"></script>
 </body>

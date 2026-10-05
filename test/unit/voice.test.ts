@@ -249,4 +249,12 @@ describe('ElevenLabs British voices', () => {
     expect(models).toEqual(['eleven_v4', 'eleven_multilingual_v2', 'eleven_multilingual_v2']);
     expect(tts.body('Hello', 'business', s, 'eleven_multilingual_v2').voice_settings).toMatchObject({ stability: 0.65 });
   });
+
+  it('voice activation: hands-free "Hey Jennifer" and the /?talk=1 entry for Siri and the Action button', async () => {
+    const { app } = await setup();
+    const html = (await app.inject({ method: 'GET', url: '/' })).body;
+    expect(html).toContain('data-wake="1"');
+    expect(html).toContain("/?talk=1");
+    expect(html).toMatch(/\\b\(jennifer\|jenny\|jenifer\)\\b/);
+  });
 });
