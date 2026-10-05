@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { ACTION_MODES, ACTION_TYPES, JenniferError, SPACES } from '../core/types.js';
 import type { Jennifer } from '../app.js';
 import { verifyWebhookSignature } from '../events/events.js';
+import { registerCompanyRoutes } from './companyRoutes.js';
 import { verifyTwilioSignature } from '../connectors/sms/twilio.js';
 import { verifyWebhookToken, type BlueBubblesMessage } from '../connectors/imessage/bluebubbles.js';
 import { toE164, verifyMetaSignature, type WhatsAppWebhookValue } from '../connectors/whatsapp/cloud.js';
@@ -170,6 +171,8 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     if (canceled && wasDecision && b.reason !== 'handed_off') j.learning.rejected(id, b.reason, b.note);
     return { canceled };
   });
+  registerCompanyRoutes(app, j, owner);
+
   // ---- Conversations ---------------------------------------------------------
   app.get('/v1/conversations', owner, async (req) => {
     const q = z.object({ space: z.enum(SPACES).optional(), limit: z.coerce.number().int().min(1).max(200).default(50) }).parse(req.query);

@@ -24,6 +24,12 @@ import { Metrics } from './ops/metrics.js';
 import { RetentionService } from './ops/retention.js';
 import { StyleLearner } from './learning/styleLearner.js';
 import { WebResearch } from './research/web.js';
+import { MemoryCompanyRepo, PgCompanyRepo, type CompanyRepo } from './company/repo.js';
+import { RoleExecutor } from './company/executor.js';
+import { CompanyBrain } from './company/brain.js';
+import { CompanyCrm } from './company/crm.js';
+import { CompanyOS } from './company/engine.js';
+import { dailyBrief as companyDailyBrief, replyToNextAction, prospectToDraft, type WorkflowDeps } from './company/workflows.js';
 import { TwilioSms } from './connectors/sms/twilio.js';
 import { BlueBubblesIMessage } from './connectors/imessage/bluebubbles.js';
 import { WhatsAppCloud } from './connectors/whatsapp/cloud.js';
@@ -70,6 +76,9 @@ export interface JenniferOptions {
   toolModel?: ToolCallingModel;
   missionStore?: MissionStore;
   aiHistoryStore?: AiHistoryStore;
+  companyRepo?: CompanyRepo;
+  /** Web research used by Company OS workflows (tests inject a fake). */
+  companyWeb?: WorkflowDeps['web'];
   /** DNS override for egress checks (tests). */
   resolve?: (host: string) => Promise<string[]>;
   /** Where VAPID keys are kept (vault in production). */
@@ -371,6 +380,16 @@ export function createJennifer(opts: JenniferOptions = {}) {
     run: async (i) => web.read(i.url, i.maxChars),
   });
   const styleLearner = new StyleLearner({ clock, feedback, model: opts.model || brain.provider !== 'none' ? new MeteredModel(model, costs, 'learning') : undefined, modelName: brain.model, promptVersion: config.openai.promptVersion, audit });
+  // ---- Company OS (blueprint): companies, roles, runs, brain, CRM, workflows ----
+  const companyRepo = opts.companyRepo ?? new MemoryCompanyRepo();
+  const companyExecutor = new RoleExecutor({ model: opts.model || brain.provider !== 'none' ? model : undefined, modelName: brain.model, promptVersion: config.openai.promptVersion, costs });
+  const companyBrain = new CompanyBrain({ repo: companyRepo, clock, audit, fetchImpl: opts.fetchImpl, resolve: opts.resolve });
+  const companyCrm = new CompanyCrm({ repo: companyRepo, clock, audit });
+  const company = new CompanyOS({ repo: companyRepo, clock, audit, executor: companyExecutor, brain: companyBrain, crm: companyCrm, ownerId });
+  const wfDeps = { actions, conversations, suppressions, capabilities, costs, ownerId, web: opts.companyWeb ?? (brain.provider !== 'none' ? web : undefined) };
+  company.register(companyDailyBrief(wfDeps));
+  company.register(replyToNextAction(wfDeps));
+  company.register(prospectToDraft(wfDeps));
   const retention = new RetentionService({ clock, retention: config.retention, conversations, actions, feedback, phone, audit, ownerId });
   registerCalendarTools(tools, { ownerId, calendar, actions, capabilities, clock, homeTimeZone: config.homeTimeZone });
   tools.register({
@@ -411,6 +430,10 @@ export function createJennifer(opts: JenniferOptions = {}) {
     agents,
     workflows,
     feedback,
+    company,
+    companyRepo,
+    companyBrain,
+    companyCrm,
     styleLearner,
     sms,
     imessage,
@@ -584,7 +607,9 @@ export async function createDurableJennifer(opts: JenniferOptions & { db: Db }) 
   const ownerId = opts.config?.ownerId ?? loadConfig({ ...process.env, JENNIFER_ENV: process.env.JENNIFER_ENV ?? 'development' }).ownerId;
   await ensureOwner(opts.db, ownerId);
   const store = new PgStateStore(opts.db, ownerId);
-  const j = createJennifer({ ...opts, clock, events: new PgEventLog(opts.db, clock), durability: store, settings: new PgSettings(opts.db, ownerId), missionStore: new PgMissionStore(opts.db), aiHistoryStore: new PgAiHistoryStore(opts.db) });
+  const j = createJennifer({ ...opts, clock, events: new PgEventLog(opts.db, clock), durability: store, settings: new PgSettings(opts.db, ownerId), missionStore: new PgMissionStore(opts.db), aiHistoryStore: new PgAiHistoryStore(opts.db), companyRepo: new PgCompanyRepo(opts.db) });
+  await j.company.bootstrap();
+  void j.company.resume();
 
   j.retention.useDb(opts.db);
   // Safety switches, "stop contacting" rules and learning survive restarts.
