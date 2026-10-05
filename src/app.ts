@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SPACES } from './core/types.js';
+import { COMPANY_IDS } from './company/model.js';
 import type { ActionIntent } from './actions/model.js';
 import { type Clock, systemClock } from './core/util.js';
 import { type Config, loadConfig, textModel } from './core/config.js';
@@ -433,7 +434,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
   tools.register({
     name: 'company_overview',
     description: "Bruno's companies (insurance, technology, music, restaurant, United Youth Orchestra): pending approvals, drafts to review, CRM changes, and recent workflow runs with their status.",
-    input: z.object({ companyId: z.enum(['insurance', 'technology', 'music', 'restaurant', 'nonprofit']).optional() }),
+    input: z.object({ companyId: z.enum(COMPANY_IDS).optional() }),
     requiredScopes: ['company:read'],
     sideEffect: 'read',
     timeoutMs: 5000,
@@ -457,7 +458,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     name: 'start_company_workflow',
     description:
       'Start a Company OS workflow for one company: WF-03 daily executive brief; WF-01 prospect research to reviewed drafts (input: segment, geography, batchLimit ≤10, language); WF-02 reply triage (input: conversationId). Results wait for Bruno’s review; nothing is sent.',
-    input: z.object({ companyId: z.enum(['insurance', 'technology', 'music', 'restaurant', 'nonprofit']), workflowId: z.enum(['WF-01', 'WF-02', 'WF-03']), input: z.record(z.string(), z.unknown()).default({}) }),
+    input: z.object({ companyId: z.enum(COMPANY_IDS), workflowId: z.enum(['WF-01', 'WF-02', 'WF-03']), input: z.record(z.string(), z.unknown()).default({}) }),
     requiredScopes: ['company:run'],
     sideEffect: 'draft',
     timeoutMs: 120_000,

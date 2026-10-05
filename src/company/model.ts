@@ -2,7 +2,8 @@ import type { Department, RoleMode } from './catalog.js';
 
 /** Company OS domain types (blueprint §2, §9, §12). */
 
-export type CompanyId = 'insurance' | 'technology' | 'music' | 'restaurant' | 'nonprofit';
+export const COMPANY_IDS = ['insurance', 'technology', 'music', 'restaurant', 'nonprofit', 'learnnoelia', 'foundation'] as const;
+export type CompanyId = (typeof COMPANY_IDS)[number];
 
 export interface Company {
   id: CompanyId;

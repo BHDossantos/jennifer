@@ -23,11 +23,16 @@ import type { CompanyCrm } from './crm.js';
 
 export const DEFAULT_COMPANIES: Company[] = [
   { id: 'insurance', name: 'Insurance agency (pilot)', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
-  { id: 'technology', name: 'Technology ventures', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
+  { id: 'technology', name: 'B&B Global Services', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
   { id: 'music', name: 'Music', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
-  { id: 'restaurant', name: 'Restaurant venture', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
+  { id: 'restaurant', name: 'SavoryMind', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
   { id: 'nonprofit', name: 'United Youth Orchestra', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
+  { id: 'learnnoelia', name: 'LearnNoelia', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
+  { id: 'foundation', name: 'Esposito Dos Santos Foundation', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
 ];
+
+/** Earlier default names, renamed in place once (an owner-chosen name is never overwritten). */
+const RENAMED: Record<string, string> = { 'Technology ventures': 'B&B Global Services', 'Restaurant venture': 'SavoryMind' };
 
 export interface StepContext {
   run: Run;
@@ -89,7 +94,9 @@ export class CompanyOS {
     return (this.booted ??= this.seed());
   }
   private async seed(): Promise<void> {
-    const have = new Set((await this.d.repo.companies()).map((c) => c.id));
+    const existing = await this.d.repo.companies();
+    const have = new Set(existing.map((c) => c.id));
+    for (const c of existing) if (RENAMED[c.name]) await this.d.repo.saveCompany({ ...c, name: RENAMED[c.name]! }, this.d.ownerId);
     for (const c of DEFAULT_COMPANIES) {
       if (!have.has(c.id)) await this.d.repo.saveCompany(c, this.d.ownerId);
       await this.d.repo.saveMembership({ companyId: c.id, userId: this.d.ownerId, role: 'owner', permissions: ['*'] });

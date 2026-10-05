@@ -48,10 +48,11 @@ async function approvedSource(j: ReturnType<typeof setup>['j'], cid: 'insurance'
 }
 
 describe('Company OS foundation', () => {
-  it('seeds five companies; the map shows 137 roles with honest readiness; developers cannot see companies', async () => {
+  it('seeds Bruno\'s seven companies; the map shows 137 roles with honest readiness; developers cannot see companies', async () => {
     const { app } = setup();
     const list = (await app.inject({ method: 'GET', url: '/v1/companies', headers: OWNER })).json();
-    expect(list.map((c: { id: string }) => c.id).sort()).toEqual(['insurance', 'music', 'nonprofit', 'restaurant', 'technology']);
+    expect(list.map((c: { id: string }) => c.id).sort()).toEqual(['foundation', 'insurance', 'learnnoelia', 'music', 'nonprofit', 'restaurant', 'technology']);
+    expect(list.map((c: { name: string }) => c.name)).toEqual(expect.arrayContaining(['SavoryMind', 'B&B Global Services', 'LearnNoelia', 'Esposito Dos Santos Foundation']));
     const map = (await app.inject({ method: 'GET', url: '/v1/companies/insurance/map', headers: OWNER })).json();
     expect(map.totals.roles).toBe(137);
     expect(map.departments.find((d: { id: string }) => d.id === 'marketing').total).toBe(24);
@@ -271,5 +272,16 @@ describe('triggers', () => {
     const runs = await j.companyRepo.runs('insurance', 10);
     expect(runs.filter((r) => r.workflowId === 'WF-02')).toHaveLength(1);
     expect((await j.company.settle('insurance', runs[0]!.id)).status).toBe('succeeded');
+  });
+
+  it('renames the old default company names once, never an owner-chosen name', async () => {
+    const { MemoryCompanyRepo } = await import('../../src/company/repo.js');
+    const { CompanyOS } = await import('../../src/company/engine.js');
+    const repo = new MemoryCompanyRepo();
+    await repo.saveCompany({ id: 'restaurant', name: 'Restaurant venture', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} });
+    await repo.saveCompany({ id: 'technology', name: 'My tech co', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} });
+    const os = new CompanyOS({ repo, ownerId: 'bruno' } as never);
+    const names = Object.fromEntries((await os.companiesFor('bruno')).map((c) => [c.id, c.name]));
+    expect(names).toMatchObject({ restaurant: 'SavoryMind', technology: 'My tech co', learnnoelia: 'LearnNoelia' });
   });
 });

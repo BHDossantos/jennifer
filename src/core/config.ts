@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SPACES } from './types.js';
 
 /**
  * Model identifiers and provider settings live in configuration, not code
@@ -64,7 +65,7 @@ const ConfigSchema = z.object({
     verifyToken: z.string().optional(),
     graphVersion: z.string().default('v21.0'),
     /** Which of Bruno's spaces this business number belongs to. */
-    space: z.enum(['personal', 'insurance', 'music', 'restaurant', 'nonprofit', 'technology']).default('personal'),
+    space: z.enum(SPACES).default('personal'),
   }),
   /** Google sign-in (OAuth client from a Google Cloud project) for Google Calendar read/write. */
   google: z.object({ clientId: z.string().optional(), clientSecret: z.string().optional() }),

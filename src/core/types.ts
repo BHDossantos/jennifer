@@ -4,7 +4,7 @@
  */
 
 /** Separate project spaces (spec §2). A contact may belong to several. */
-export const SPACES = ['personal', 'insurance', 'music', 'restaurant', 'nonprofit', 'technology'] as const;
+export const SPACES = ['personal', 'insurance', 'music', 'restaurant', 'nonprofit', 'technology', 'learnnoelia', 'foundation'] as const;
 export type Space = (typeof SPACES)[number];
 
 /** The four action settings of the operating contract (spec §1). */
