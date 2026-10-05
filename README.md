@@ -63,6 +63,7 @@ Jennifer does **not** log in to your ChatGPT or Claude accounts, and an API key 
   - Upload the .zip, or, if ChatGPT's .zip is very large because of images, unzip it in the Files app and upload just `conversations.json`. Re-uploading a newer export adds only new messages.
 - **One chat at a time ("Send to Jennifer"):** paste it in Memory, or make an iOS Shortcut: *Receive text from Share Sheet → Get contents of URL* `https://<your Jennifer URL>/v1/history/clip`, method POST, header `X-Jennifer-Clip-Token: <token>` (create it with `POST /v1/history/clip-token` from the signed-in app; it can only add clips), JSON body `{"text": Shortcut Input, "from": "chatgpt"}`. Then Share → Jennifer from either app.
 - **What she does with it:** search it when you ask ("what did Claude and I decide about the agency plan?"), use it in missions (source "AI history"), and suggest memories from **your own** messages. Suggestions wait for your OK; assistant replies are never treated as facts about you. Remove an import any time.
+- **Claude does the hands-on work (optional):** Jennifer can hand an approved task ("book Dentist on Tue 14 Oct 15:00") to a Claude Code Routine on your own Claude account, which carries it out with the connectors there (Google Calendar, Gmail, Drive…). Jennifer never holds those logins; every task waits for your OK in **Tasks**, and Claude reports back when it is done. Setup steps and the routine instructions to paste are in **Connections → Claude does tasks for you**; then set `CLAUDE_ROUTINE_URL` and `CLAUDE_ROUTINE_TOKEN` in Render.
 - **Claude as her brain:** set `ANTHROPIC_API_KEY` (and `MODEL_PROVIDER=anthropic` to prefer it). Chat, missions, drafts and the brief then run on Claude Opus 5.5; voice and phone calls stay on OpenAI Realtime. Claude requests opt into Anthropic's server-side refusal fallback (`fallbacks: "default"`), which can re-run a declined request on another Claude model.
 
 ## Core rule
@@ -126,6 +127,7 @@ Node ≥ 20. Copy `.env.example` to `.env` for configuration. Set `JENNIFER_SEED
 | `src/memory/aiHistory.ts` | §11 | ChatGPT and Claude history bridge: exports (incl. Claude projects), Send-to-Jennifer clips, search, memory suggestions for review |
 | `src/connectors/sms/` | §7 | SMS on Jennifer's number (Twilio/SignalWire), signed webhooks, reconciliation, urgent SMS fallback |
 | `src/voice/chained.ts` | §8 | Push-to-talk: transcription → Jennifer → speech, with pronunciations and per-stage latency |
+| `src/delegate/claudeRoutine.ts` | §11 | Approved tasks handed to Bruno's Claude routine (official API trigger), signed per-task reports back |
 | `src/voice/elevenlabs.ts` | §8 | ElevenLabs voices (British female first), greeting auditions, private/business delivery mapped to voice settings |
 | `src/research/web.ts` | §12 | Web search (provider-hosted) and safe page reading for chat, missions and voice |
 | `src/ops/` | §17, §18 | Cost ledger with monthly ceiling, metrics, retention job |

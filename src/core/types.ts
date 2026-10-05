@@ -32,6 +32,8 @@ export const ACTION_TYPES = [
   'create_event',
   'modify_event',
   'cancel_event',
+  /** Ask Claude (Bruno's own routine and connectors) to carry out an approved task. */
+  'delegate_task',
   'place_call',
   'transfer_call',
   'transfer_money',

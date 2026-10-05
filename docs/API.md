@@ -227,6 +227,13 @@ Errors are JSON: `{ "error": "<code>", "message": "..." }` — `409` for policy/
 | POST | `/v1/webhooks/imessage` | provider signature |  |
 | POST | `/v1/webhooks/email/:connectorId` | provider signature |  |
 
+### Claude delegation (Claude Code Routine)
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/v1/delegate` | owner | Setup status and the prompt Bruno pastes into his routine. |
+| POST | `/v1/webhooks/claude-routine` | provider signature | Claude's report on a delegated task. Authenticated by a per-task HMAC token only Jennifer can mint. |
+
 ### Company OS
 
 | Method | Path | Auth | Notes |

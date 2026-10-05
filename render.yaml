@@ -29,6 +29,10 @@ services:
         sync: false
       - key: JENNIFER_ELEVENLABS_VOICE_ID  # Jennifer's voice (elevenlabs.io/voices/LM5QaByxyWDmNhcQTYiS)
         value: LM5QaByxyWDmNhcQTYiS
+      - key: CLAUDE_ROUTINE_URL      # optional: Claude does approved tasks with your claude.ai connectors (claude.ai/code/routines → API trigger URL)
+        sync: false
+      - key: CLAUDE_ROUTINE_TOKEN    # the routine's API trigger token (shown once when you click Generate token)
+        sync: false
       - key: MODEL_PROVIDER          # auto | openai | anthropic (auto = OpenAI when its key is set)
         value: auto
       - key: JENNIFER_EMAIL_SANDBOX  # optional: only these recipients until you remove it

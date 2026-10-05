@@ -468,6 +468,24 @@ export class ActionService {
     return h;
   }
 
+  /**
+   * A provider reported the final outcome after accepting the action (e.g.
+   * Claude finished a delegated task). Only accepted or still-unconfirmed
+   * actions can be settled this way.
+   */
+  settle(id: string, ok: boolean, actor: string, evidence: string): ActionIntent {
+    const intent = this.get(id);
+    if (intent.state === 'unknown') {
+      intent.receipt = { deliveryStatus: 'accepted', evidence, observedAt: this.d.clock.now() };
+      this.transition(intent, 'provider_accepted', actor, 'provider reported the task');
+      this.consumeApproval(intent);
+    }
+    if (intent.state !== 'provider_accepted') throw new JenniferError('action.not_settleable', `Action ${id} is ${intent.state}`);
+    intent.receipt = { ...(intent.receipt ?? { deliveryStatus: 'accepted' }), deliveryStatus: ok ? 'confirmed' : intent.receipt?.deliveryStatus ?? 'accepted', evidence, observedAt: this.d.clock.now() };
+    this.transition(intent, ok ? 'confirmed' : 'failed', actor, evidence);
+    return intent;
+  }
+
   private transitionListeners: Array<(intent: ActionIntent, from: ActionState) => void> = [];
 
   /** Observe state changes (notifications, metrics). Listeners must not throw. */

@@ -106,7 +106,7 @@ const api = async (path, opts = {}, retried = false) => {
   return body;
 };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-const LABEL = { send_message: 'Email', create_event: 'New calendar event', modify_event: 'Calendar change' };
+const LABEL = { send_message: 'Email', create_event: 'New calendar event', modify_event: 'Calendar change', delegate_task: 'Task for Claude' };
 const STATE = { awaiting_decision: 'waiting for you', provider_accepted: 'sent', confirmed: 'done', ready: 'about to run', canceled: 'canceled', failed: 'failed', unknown: 'checking whether it went out' };
 const card = (a) => \`<div class="card"><strong>\${esc(LABEL[a.type] || a.type)}</strong> <span class="muted">· \${esc(STATE[a.state] || a.state)}</span>
   <div class="muted">From \${esc(a.sendingAccount)} to \${esc(a.recipients.join(', '))}</div>
@@ -159,7 +159,18 @@ const views = {
       <p class="muted"><b>Google Calendar, read and write</b>: sign in with Google (needs the Google Cloud setup from the README).</p>
       <div class="row"><button class="btn primary" data-gcal="1">Connect Google Calendar (read &amp; write)</button></div>
       <div class="row"><button class="btn" data-cal="feed">Add Google Calendar (read-only link)</button><button class="btn" data-cal="sync">Refresh now</button></div></div>\`;
-    return gmailCard + calCard + (await api('/v1/connections')).map(c => \`<div class="card"><strong>\${esc(c.provider)}</strong> <span class="\${c.connected ? 'good' : 'bad'}">\${c.connected ? 'connected' : 'not connected'}</span>
+    const dg = await api('/v1/delegate').catch(() => null);
+    const claudeCard = dg ? \`<div class="card"><strong>Claude does tasks for you</strong> <span class="\${dg.configured ? 'good' : 'bad'}">\${dg.configured ? 'connected' : 'not connected'}</span>
+      <p class="muted">Jennifer decides; Claude does the hands-on work with the accounts connected to your Claude account (Calendar, Gmail, Drive…). Every task waits for your OK in Tasks first. Jennifer never sees those logins.</p>
+      <details\${dg.configured ? '' : ' open'}><summary>Set it up (about 5 minutes)</summary><ol>
+        <li>Open <b>claude.ai/code/routines</b> → <b>New routine</b>. Name it <b>Jennifer tasks</b>.</li>
+        <li>Paste the instructions below into the prompt box.</li>
+        <li>Keep the connectors Jennifer may use (e.g. Google Calendar, Gmail, Google Drive). Remove the rest.</li>
+        <li>Environment: edit it → Network access <b>Custom</b> → add <code>\${esc(dg.callbackHost || 'your Jennifer address')}</code> (tick “also include default list”) so Claude can report back.</li>
+        <li>Trigger: <b>API</b>. Save, then copy the URL and <b>Generate token</b>.</li>
+        <li>In Render → jennifer → Environment, set <code>CLAUDE_ROUTINE_URL</code> and <code>CLAUDE_ROUTINE_TOKEN</code>, save, and wait for the redeploy.</li></ol>
+      <textarea id="rprompt" rows="8" readonly>\${esc(dg.routinePrompt)}</textarea><button class="btn" data-copyprompt="1">Copy instructions</button></details></div>\` : '';
+    return gmailCard + calCard + claudeCard + (await api('/v1/connections')).map(c => \`<div class="card"><strong>\${esc(c.provider)}</strong> <span class="\${c.connected ? 'good' : 'bad'}">\${c.connected ? 'connected' : 'not connected'}</span>
       <div class="muted">Monitoring: \${c.canMonitor ? 'yes' : 'no'} · Last sync: \${esc(c.lastSync || 'never')}</div>
       <div>Can: \${esc(c.actions.join(', ') || 'nothing yet')}</div><div class="muted">Unavailable: \${esc(c.unavailable.join(', '))}</div>
       \${c.problem ? '<div class="bad">' + esc(c.problem) + '</div>' : ''}</div>\`).join('');
@@ -290,9 +301,10 @@ document.addEventListener('click', async (e) => {
     $('#status').textContent = 'Result: ' + r.state; return show(current); }
   if (t.dataset.cancel) { const w = document.querySelector('[data-why="' + t.dataset.cancel + '"]'); await api('/v1/actions/' + t.dataset.cancel + '/cancel', { method: 'POST', body: JSON.stringify({ reason: w ? w.value : 'rejected' }) }); return show(current); }
   if (t.dataset.edit) { const el = $('#edit-' + t.dataset.edit); el.hidden = !el.hidden; return; }
+  if (t.dataset.copyprompt) { try { await navigator.clipboard.writeText($('#rprompt').value); $('#status').textContent = 'Copied. Paste it into your Claude routine.'; } catch { $('#rprompt').select(); } return; }
   if (t.dataset.saveedit) {
     const id = t.dataset.saveedit; const a = await api('/v1/actions/' + id);
-    const payload = { ...a.payloadRaw, subject: $('#es-' + id).value, body: $('#eb-' + id).value };
+    const payload = a.type === 'delegate_task' ? { ...a.payloadRaw, task: $('#eb-' + id).value } : { ...a.payloadRaw, subject: $('#es-' + id).value, body: $('#eb-' + id).value };
     try { await api('/v1/actions/' + id + '/edit', { method: 'POST', body: JSON.stringify({ payload }) }); $('#status').textContent = 'Saved. Review and approve the new version.'; } catch (err) { $('#status').textContent = 'Edit: ' + err.message; }
     return show(current);
   }
