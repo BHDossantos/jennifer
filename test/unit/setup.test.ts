@@ -20,9 +20,9 @@ describe('Week 1 — inventory and operating contract', () => {
     expect(() => enableTemplate(h.j.authority, 'routine_scheduling', 'bruno', {})).toThrow(/scoped/);
     const rules = enableTemplate(h.j.authority, 'routine_scheduling', 'bruno', { contactIds: [h.contacts.marco] });
     expect(rules.map((r) => r.action)).toEqual(['create_event', 'modify_event', 'send_message']);
-    const send = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'Thursday 16:00 works.' }), proposedBy: 'jennifer' });
+    const send = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'Thursday 16:00 works.' }), proposedBy: 'jennifer' });
     expect(send.state).toBe('ready');
-    const tooMany = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], cc: ['giulia@trattoria.it', 'anna.r87@gmail.com', 'anna.rossi@assicura.it'], body: 'All of you' }), proposedBy: 'jennifer' });
+    const tooMany = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], cc: ['giulia@trattoria.it', 'anna.r87@gmail.com', 'anna.rossi@assicura.it'], body: 'All of you' }), proposedBy: 'jennifer' });
     expect(tooMany.state).toBe('awaiting_decision');
     for (const r of rules) h.j.authority.revoke(r.id, 'bruno');
     expect(h.j.actions.get(send.id).state).toBe('awaiting_decision');

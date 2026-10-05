@@ -46,6 +46,13 @@ export interface AuthorityRequest {
   amountEur?: number;
   attachmentSpaces: Space[];
   recipientCount: number;
+  /**
+   * Bruno's rule: Jennifer only ever answers people who wrote first. True when
+   * every recipient has written in this conversation (a reply) or, for
+   * calendar actions, when nobody outside Bruno is invited. Anything that
+   * starts a conversation needs his explicit approval, whatever the rules say.
+   */
+  isReply?: boolean;
 }
 
 export type AuthorityOutcome = 'execute' | 'ask' | 'draft_only' | 'observe_only';
@@ -181,6 +188,10 @@ export class AuthorityRegistry {
           reasons.push('attachments are outside the standing permission');
         }
       }
+    }
+    if (outcome === 'execute' && req.isReply === false) {
+      outcome = 'ask';
+      reasons.push('Jennifer only replies on her own; starting a new conversation needs your approval');
     }
     if (reasons.length === 0) reasons.push(`covered by rule ${rule.id} (${rule.mode})`);
     return { outcome, ruleId: rule.id, policyVersion: this.version, reasons };

@@ -4,6 +4,7 @@ import { ScriptedModel, type ModelRequest } from '../src/core/model.js';
 import { FakeEmailProvider } from '../src/connectors/fakeEmail.js';
 import type { InboundEmail } from '../src/assistant/inbound.js';
 import type { SendMessagePayload } from '../src/actions/sendMessage.js';
+import type { Space } from '../src/core/types.js';
 
 export const ACCOUNT = 'bruno@gmail.test';
 
@@ -20,6 +21,8 @@ export interface Harness {
     annaFriend: string; // "Anna Rossi" — personal
   };
   email: (partial: Partial<InboundEmail> & { from: InboundEmail['from']; body: string }) => InboundEmail;
+  /** A conversation in which `address` has written (so a send to them is a reply). */
+  thread: (address: string, space?: Space) => string;
   sendPayload: (p: Partial<SendMessagePayload> & { to: string[]; body: string }) => SendMessagePayload;
 }
 
@@ -84,6 +87,11 @@ export function makeHarness(): Harness {
         space: 'music',
         ...p,
       };
+    },
+    thread: (address, space = 'music') => {
+      const conv = j.conversations.upsertConversation({ ownerId: 'bruno', accountId: ACCOUNT, channel: 'email', space, providerThreadId: `thread-${address}-${space}`, subject: 'Hello', participantContactIds: [] });
+      j.conversations.addMessage({ ownerId: 'bruno', accountId: ACCOUNT, conversationId: conv.id, providerMessageId: `in-${address}-${space}`, direction: 'inbound', channel: 'email', status: 'received', from: { address }, to: [ACCOUNT], cc: [], bcc: [], subject: 'Hello', body: 'Hi Bruno', headers: {}, attachmentIds: [], occurredAt: clock.now(), flags: [] });
+      return conv.id;
     },
     sendPayload: (p) => ({ cc: [], bcc: [], attachmentIds: [], evidence: [], subject: 'Re: Hello', ...p }),
   };

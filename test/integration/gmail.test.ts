@@ -171,7 +171,9 @@ describe('Gmail connector (IMAP + SMTP, app password)', () => {
     const { f, j } = await setup();
     j.authority.grant({ principal: 'bruno', action: 'send_message', mode: 'execute', scope: { accountIds: [ADDRESS] } });
     f.failDataOnce = true;
-    const a = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'personal', channel: 'email', connectorId: 'gmail', accountId: ADDRESS, payload: { to: ['marco@bianchi.test'], cc: [], bcc: [], subject: 'Hi', body: 'Hello', attachmentIds: [], evidence: [] }, proposedBy: 'test' });
+    const conv = j.conversations.upsertConversation({ ownerId: 'bruno', accountId: ADDRESS, channel: 'email', space: 'personal', providerThreadId: 't1', participantContactIds: [] });
+    j.conversations.addMessage({ ownerId: 'bruno', accountId: ADDRESS, conversationId: conv.id, providerMessageId: 'in1', direction: 'inbound', channel: 'email', status: 'received', from: { address: 'marco@bianchi.test' }, to: [ADDRESS], cc: [], bcc: [], subject: 'Hi', body: 'Hi Bruno', headers: {}, attachmentIds: [], occurredAt: new Date(), flags: [] });
+    const a = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'personal', channel: 'email', connectorId: 'gmail', accountId: ADDRESS, conversationId: conv.id, payload: { to: ['marco@bianchi.test'], cc: [], bcc: [], subject: 'Hi', body: 'Hello', attachmentIds: [], evidence: [] }, proposedBy: 'test' });
     await j.actions.execute(a.id);
     expect(j.actions.get(a.id).state).toBe('unknown');
     await j.actions.recoverUnknown();

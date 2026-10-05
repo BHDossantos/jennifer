@@ -272,6 +272,8 @@ export class CalendarActionHandler implements ActionHandler<CalendarActionPayloa
         workflowId: intent.workflowId,
         attachmentSpaces: [],
         recipientCount: ev.attendees.length,
+        // Inviting people starts contact with them; moving an existing meeting or a private event does not.
+        isReply: ev.attendees.length === 0 || !!intent.payload.replacesEventId,
       },
       contactIds,
       addresses: ev.attendees,

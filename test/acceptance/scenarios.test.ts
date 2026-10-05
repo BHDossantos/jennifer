@@ -147,7 +147,7 @@ describe('Scenario C — Bruno stops follow-ups to a business', () => {
     });
     j.workflows.confirm(wf.id);
     expect(j.workflows.mayContact(wf, { contactIds: [h.contacts.giulia], address: 'giulia@trattoria.it' }).ok).toBe(false);
-    const late = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'restaurant', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['giulia@trattoria.it'], body: 'One more follow-up' }), proposedBy: 'jennifer' });
+    const late = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'restaurant', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('giulia@trattoria.it', 'restaurant'), payload: h.sendPayload({ to: ['giulia@trattoria.it'], body: 'One more follow-up' }), proposedBy: 'jennifer' });
     expect(late.state).toBe('canceled');
   });
 });
@@ -164,11 +164,11 @@ describe('Scenario D — two people share a name', () => {
     const policy = j.conversations.addAttachment({ ownerId: 'bruno', space: 'insurance', filename: 'policy.pdf', mimeType: 'application/pdf', sizeBytes: 1000, storageRef: 's3://x', scanStatus: 'clean', sensitivity: 'normal', shareableWithContactIds: [h.contacts.annaWork] });
     j.authority.grant({ principal: 'bruno', action: 'send_message', mode: 'execute', scope: { spaces: ['insurance', 'personal'] }, attachments: { allowed: true, spaces: ['insurance'] } });
 
-    const wrong = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'insurance', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['anna.r87@gmail.com'], body: 'Here is the policy', attachmentIds: [policy.id] }), proposedBy: 'jennifer' });
+    const wrong = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'insurance', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('anna.r87@gmail.com', 'insurance'), payload: h.sendPayload({ to: ['anna.r87@gmail.com'], body: 'Here is the policy', attachmentIds: [policy.id] }), proposedBy: 'jennifer' });
     expect(wrong.state).toBe('failed');
     expect(wrong.stateReason).toMatch(/not permitted for these recipients/);
 
-    const right = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'insurance', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['anna.rossi@assicura.it'], body: 'Here is the policy', attachmentIds: [policy.id] }), proposedBy: 'jennifer' });
+    const right = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'insurance', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('anna.rossi@assicura.it', 'insurance'), payload: h.sendPayload({ to: ['anna.rossi@assicura.it'], body: 'Here is the policy', attachmentIds: [policy.id] }), proposedBy: 'jennifer' });
     expect(right.state).toBe('ready');
   });
 
@@ -213,7 +213,7 @@ describe('Scenario F — send times out', () => {
     const { j } = h;
     grantRoutineReplies(h);
     h.gmail.injectFault('timeout_after_send');
-    const a = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'Confirmed for Thursday.' }), proposedBy: 'jennifer' });
+    const a = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'Confirmed for Thursday.' }), proposedBy: 'jennifer' });
     await j.actions.execute(a.id);
     expect(j.actions.get(a.id).state).toBe('unknown');
     await j.actions.execute(a.id); // reconcile, not resend
@@ -228,7 +228,7 @@ describe('Scenario F — send times out', () => {
     const { j } = h;
     grantRoutineReplies(h);
     h.gmail.injectFault('timeout_before_send');
-    const a = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'Confirmed.' }), proposedBy: 'jennifer' });
+    const a = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'Confirmed.' }), proposedBy: 'jennifer' });
     await j.actions.execute(a.id);
     await j.actions.execute(a.id); // reconcile → not found → scheduled retry
     expect(j.actions.get(a.id).state).toBe('ready');
@@ -243,7 +243,7 @@ describe('Scenario G — Bruno edits a draft after approving it', () => {
   it('the old approval cannot send the new content', async () => {
     const h = makeHarness();
     const { j } = h;
-    const a = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'Version one' }), proposedBy: 'jennifer' });
+    const a = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'Version one' }), proposedBy: 'jennifer' });
     expect(a.state).toBe('awaiting_decision');
     const approval = j.actions.approve(a.id, 'bruno', { revision: a.revision, payloadHash: a.payloadHash });
     j.actions.edit(a.id, 'bruno', h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'Version two' }));
@@ -319,7 +319,7 @@ describe('Scenario J — an account disconnects', () => {
     const { j } = h;
     grantRoutineReplies(h);
     h.gmail.injectFault('disconnected');
-    const a = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'Hi' }), proposedBy: 'jennifer' });
+    const a = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'Hi' }), proposedBy: 'jennifer' });
     await j.actions.execute(a.id);
     expect(j.actions.get(a.id).state).toBe('failed');
     const brief = j.dailyBrief();
@@ -331,7 +331,7 @@ describe('Scenario J — an account disconnects', () => {
     expect(screen.connected).toBe(false);
     expect(screen.canMonitor).toBe(false);
     // New sends are refused while disconnected.
-    const b = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'Hi again' }), proposedBy: 'jennifer' });
+    const b = j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'Hi again' }), proposedBy: 'jennifer' });
     expect(b.state).toBe('failed');
   });
 });

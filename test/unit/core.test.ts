@@ -14,7 +14,7 @@ describe('operating contract (§1)', () => {
   it('a revoked rule stops queued work and cannot execute', async () => {
     const h = makeHarness();
     const rule = grantRoutineReplies(h);
-    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'ok' }), proposedBy: 'jennifer' });
+    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'ok' }), proposedBy: 'jennifer' });
     expect(a.state).toBe('ready');
     h.j.authority.revoke(rule.id, 'bruno');
     expect(h.j.actions.get(a.id).state).toBe('awaiting_decision');
@@ -25,7 +25,7 @@ describe('operating contract (§1)', () => {
   it('changing a rule to draft mode takes effect on queued tasks', () => {
     const h = makeHarness();
     const rule = grantRoutineReplies(h);
-    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'ok' }), proposedBy: 'jennifer' });
+    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'ok' }), proposedBy: 'jennifer' });
     h.j.authority.update(rule.id, 'bruno', { mode: 'draft' });
     expect(h.j.actions.get(a.id).state).toBe('awaiting_decision');
   });
@@ -34,7 +34,7 @@ describe('operating contract (§1)', () => {
     const h = makeHarness();
     h.j.authority.grant({ principal: 'bruno', action: 'send_message', mode: 'execute', scope: { contactIds: [h.contacts.marco] }, expiresAt: new Date(h.clock.now().getTime() + 1000) });
     h.clock.advance(2000);
-    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'ok' }), proposedBy: 'jennifer' });
+    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'ok' }), proposedBy: 'jennifer' });
     expect(a.state).toBe('awaiting_decision');
   });
 
@@ -51,14 +51,14 @@ describe('operating contract (§1)', () => {
   it('observe mode never produces an action', () => {
     const h = makeHarness();
     h.j.authority.grant({ principal: 'bruno', action: 'send_message', mode: 'observe', scope: { contactIds: [h.contacts.annaFriend] } });
-    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'personal', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['anna.r87@gmail.com'], body: 'hi' }), proposedBy: 'jennifer' });
+    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'personal', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('anna.r87@gmail.com', 'personal'), payload: h.sendPayload({ to: ['anna.r87@gmail.com'], body: 'hi' }), proposedBy: 'jennifer' });
     expect(a.state).toBe('canceled');
   });
 
   it('every send is traceable to a rule or approval', async () => {
     const h = makeHarness();
     grantRoutineReplies(h);
-    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'ok' }), proposedBy: 'jennifer' });
+    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'ok' }), proposedBy: 'jennifer' });
     await h.j.actions.execute(a.id);
     const ev = h.j.audit.list({ kind: 'action.executed', subjectId: a.id })[0]!;
     expect(ev.detail.authorityRuleId ?? ev.detail.approvalId).toBeTruthy();
@@ -67,13 +67,13 @@ describe('operating contract (§1)', () => {
   it('only the owner can approve', () => {
     const h = makeHarness();
     h.j.authority.grant({ principal: 'bruno', action: 'send_message', mode: 'ask', scope: {} });
-    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'x' }), proposedBy: 'jennifer' });
+    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'x' }), proposedBy: 'jennifer' });
     expect(() => h.j.actions.approve(a.id, 'developer', { revision: a.revision, payloadHash: a.payloadHash })).toThrow(/Only the owner/);
   });
 
   it('approvals expire', async () => {
     const h = makeHarness();
-    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'x' }), proposedBy: 'jennifer' });
+    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'x' }), proposedBy: 'jennifer' });
     h.j.actions.approve(a.id, 'bruno', { revision: a.revision, payloadHash: a.payloadHash });
     h.clock.advance(25 * 3600_000);
     await h.j.actions.runDue();
@@ -134,7 +134,7 @@ describe('event pipeline (§5)', () => {
     const h = makeHarness();
     grantRoutineReplies(h);
     h.gmail.injectFault(...Array(5).fill('reject_transient'));
-    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'x' }), proposedBy: 'jennifer' });
+    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'x' }), proposedBy: 'jennifer' });
     for (let i = 0; i < 6; i++) {
       await h.j.actions.runDue();
       h.clock.advance(120_000);
@@ -146,7 +146,7 @@ describe('event pipeline (§5)', () => {
   it('emergency stop cancels queued work', () => {
     const h = makeHarness();
     grantRoutineReplies(h);
-    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'x' }), proposedBy: 'jennifer' });
+    const a = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('marco@bianchi-music.it', 'music'), payload: h.sendPayload({ to: ['marco@bianchi-music.it'], body: 'x' }), proposedBy: 'jennifer' });
     h.j.controls.emergencyStop('bruno');
     expect(h.j.actions.get(a.id).state).toBe('canceled');
   });
@@ -311,7 +311,7 @@ describe('contacts learned from approvals', () => {
     // A standing rule for the music space now covers her; its sends don't create new contacts.
     h.j.authority.grant({ principal: 'bruno', action: 'send_message', mode: 'execute', scope: { spaces: ['music'], contactIds: [laura.id] } });
     const before = h.j.contacts.list('bruno').length;
-    const r = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, payload: h.sendPayload({ to: ['laura@venue.test'], body: 'Confirmed.' }), proposedBy: 'jennifer' });
+    const r = h.j.actions.propose({ ownerId: 'bruno', type: 'send_message', space: 'music', channel: 'email', connectorId: 'gmail', accountId: ACCOUNT, conversationId: h.thread('laura@venue.test', 'music'), payload: h.sendPayload({ to: ['laura@venue.test'], body: 'Confirmed.' }), proposedBy: 'jennifer' });
     expect(r.state).toBe('ready');
     await h.j.actions.execute(r.id);
     expect(h.j.contacts.list('bruno').length).toBe(before);

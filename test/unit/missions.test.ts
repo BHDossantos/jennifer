@@ -43,20 +43,30 @@ describe('Missions (always-on agents)', () => {
     expect(toolOutput.output).toMatch(/^<untrusted-\w+ source="tool:list_recent_email"/);
   });
 
-  it('autonomy "act" lets the mission send to verified contacts; unknown recipients still need Bruno', async () => {
+  it('autonomy "act" lets the mission reply to verified contacts who wrote; starting a conversation or unknown recipients still need Bruno', async () => {
+    let convId = '';
     const { j, gmail } = setup(({ step }) =>
       step === 1
-        ? [call('propose_email', { to: ['marco@bianchi.test'], subject: 'Thursday', body: 'Thursday at 4 works.' }, 'a'), call('propose_email', { to: ['stranger@x.test'], subject: 'Hi', body: 'Hello' }, 'b')]
-        : [say('Proposed two emails.')],
+        ? [
+            call('propose_email', { to: ['marco@bianchi.test'], subject: 'Re: Thursday', body: 'Thursday at 4 works.', conversationId: convId }, 'a'),
+            call('propose_email', { to: ['marco@bianchi.test'], subject: 'New idea', body: 'Shall we plan a tour?' }, 'b'),
+            call('propose_email', { to: ['stranger@x.test'], subject: 'Hi', body: 'Hello' }, 'c'),
+          ]
+        : [say('Proposed three emails.')],
     );
+    const conv = j.conversations.upsertConversation({ ownerId: 'bruno', accountId: ACCOUNT, channel: 'email', space: 'personal', providerThreadId: 't-marco', subject: 'Thursday', participantContactIds: [] });
+    j.conversations.addMessage({ ownerId: 'bruno', accountId: ACCOUNT, conversationId: conv.id, providerMessageId: 'm1', direction: 'inbound', channel: 'email', status: 'received', from: { address: 'marco@bianchi.test' }, to: [ACCOUNT], cc: [], bcc: [], subject: 'Thursday', body: 'Can we do Thursday?', headers: {}, attachmentIds: [], occurredAt: new Date(), flags: [] });
+    convId = conv.id;
     const m = await j.missions.create({ title: 'Replies', goal: 'Reply to scheduling emails', autonomy: { send_email: 'act' } }, 'bruno');
     const after = await j.missions.run(m.id, 'work', 'test');
-    const [a, b] = after.results[0]!.proposedActionIds.map((id) => j.actions.get(id));
+    const [a, b, c] = after.results[0]!.proposedActionIds.map((id) => j.actions.get(id));
     expect(a!.state).toBe('ready');
     expect(a!.workflowId).toBe(m.id);
-    expect(b!.state).toBe('awaiting_decision');
+    expect(b!.state).toBe('awaiting_decision'); // Bruno's rule: Jennifer never starts a conversation on her own
+    expect(b!.decisionReasons.join(' ')).toMatch(/only replies on her own/);
+    expect(c!.state).toBe('awaiting_decision');
     await j.actions.runDue();
-    expect(gmail.sent.map((s) => s.to[0])).toEqual(['marco@bianchi.test']);
+    expect(gmail.sent.map((s) => s.subject)).toEqual(['Re: Thursday']);
   });
 
   it('"ask" and "hand_over" never send without Bruno; mission rules do not leak outside the mission', async () => {

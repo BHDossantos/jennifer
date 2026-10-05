@@ -46,7 +46,7 @@ Bruno's persistent executive assistant: backend foundation, policy engine, durab
     - OAuth consent screen: External, add your Gmail as a test user (or publish), scope `.../auth/calendar.events`.
     - Credentials → Create OAuth client ID → Web application → Authorized redirect URI `https://<your Jennifer URL>/v1/connectors/google-calendar/callback`.
     - In Render set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, then in Connections tap **Connect Google Calendar (read & write)**. New events then go to Google; edits go back to whichever calendar the event lives in.
-13. **Autopilot:** Settings → **Turn on Autopilot** lets Jennifer reply on her own, in real time, to people you know on every connected account. Strangers, attachments, money, contracts and security changes still come to you. Turn it off with one tap.
+13. **Autopilot:** Settings → **Turn on Autopilot** lets Jennifer reply on her own, in real time, to people you know when they write to you, on every connected account. She never starts a conversation or sends an invitation on her own: ask her, then approve. Strangers, attachments, money, contracts and security changes still come to you. Turn it off with one tap.
 
 ## ChatGPT and Claude: what Jennifer can and cannot see
 

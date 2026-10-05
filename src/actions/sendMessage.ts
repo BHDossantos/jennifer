@@ -92,9 +92,13 @@ export class SendMessageHandler implements ActionHandler<SendMessagePayload> {
     const claims = unsupportedClaims(p.body, p.evidence);
     if (claims.length) concerns.push(`unsupported factual claims: ${claims.join(', ')}`);
 
+    // A reply = the conversation already has a message from every recipient.
+    let isReply = false;
     if (intent.conversationId) {
       const conv = this.conversations.getConversation(intent.conversationId);
       if (conv.ownerId !== intent.ownerId || conv.accountId !== intent.accountId) violations.push('conversation does not belong to this account');
+      const wrote = new Set(this.conversations.messagesIn(conv.id).filter((m) => m.direction === 'inbound').map((m) => m.from.address.toLowerCase()));
+      isReply = addresses.length > 0 && addresses.every((a) => wrote.has(a));
     }
 
     return {
@@ -108,6 +112,7 @@ export class SendMessageHandler implements ActionHandler<SendMessagePayload> {
         amountEur: p.amountEur,
         attachmentSpaces,
         recipientCount: addresses.length,
+        isReply,
       },
       contactIds,
       addresses,

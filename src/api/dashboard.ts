@@ -246,7 +246,7 @@ const views = {
       <details><summary>Pause one account</summary>\${connPause || '<div class="muted">No connected accounts.</div>'}</details>
       <details><summary>Pause one contact</summary>\${contactPause}</details></div>
       <div class="card"><strong>Autopilot</strong> \${ctl.autopilot ? '<span class="good">on</span>' : '<span class="muted">off</span>'}
-      <p class="muted">Jennifer replies on her own, in real time, to people you know on your connected accounts (email, texts, iMessage, WhatsApp), and books or moves meetings. Strangers, attachments, money, contracts and security changes still come to you. Turn it off any time.</p>
+      <p class="muted">Jennifer replies on her own, in real time, to people you know when they write to you (email, texts, iMessage, WhatsApp). She never starts a conversation: if you want to reach someone, ask her and approve it. Strangers, attachments, money, contracts and security changes still come to you. Turn it off any time.</p>
       <div class="row"><button class="btn primary" data-autopilot="on">Turn on Autopilot</button><button class="btn" data-autopilot="off">Turn off</button></div></div>
       <h2>What Jennifer learned</h2>\${rules}\` + (cost ? \`<div class="card"><strong>This month</strong> about €\${cost.totalEur.toFixed(2)} of your €\${cost.ceilingEur} ceiling<div class="muted">Text €\${cost.byCategory.text.toFixed(2)} · voice €\${cost.byCategory.voice.toFixed(2)} · calls €\${cost.byCategory.phone.toFixed(2)}. Estimates from usage, not an invoice.</div></div>\` : '') + notif;
   },

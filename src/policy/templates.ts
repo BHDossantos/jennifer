@@ -23,7 +23,7 @@ export const AUTHORITY_TEMPLATES: AuthorityTemplate[] = [
     id: 'autopilot',
     title: 'Autopilot',
     description:
-      'Reply automatically, in real time, to people you know (verified contacts) on the chosen accounts, and schedule or move meetings. Unknown senders, attachments, unsupported claims, money, contracts and security changes still come to you.',
+      'Reply automatically, in real time, to people you know (verified contacts) who wrote to you, and move meetings they ask about. Jennifer never starts a conversation or sends an invitation on her own; unknown senders, attachments, unsupported claims, money, contracts and security changes still come to you.',
     rules: [
       { action: 'send_message', mode: 'execute', maxRecipients: 3 },
       { action: 'create_event', mode: 'execute' },
