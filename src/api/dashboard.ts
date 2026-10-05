@@ -207,13 +207,26 @@ const views = {
   async voice() {
     const v = await api('/v1/voice');
     const s = v.settings;
-    const cards = v.candidates.map((c) => \`<div class="card"><strong>\${esc(c.label)}</strong> \${s.voiceId === c.id ? '<span class="good">· Jennifer\\u2019s voice</span>' : ''}
+    const cards = v.candidates.map((c) => \`<div class="card"><strong>\${esc(c.label)}</strong> \${s.voiceId === c.id ? (s.ttsProvider === 'elevenlabs' && v.elevenlabs ? '<span class="good">· Talk button voice</span>' : '<span class="good">· Jennifer\\u2019s voice</span>') : ''}
       <div class="muted">\${esc(c.character)}</div>
       <div class="row"><button class="btn" data-audition="\${c.id}" data-mode="private">Play private</button><button class="btn" data-audition="\${c.id}" data-mode="business">Play business</button>
       <button class="btn primary" data-choose="\${c.id}">Choose</button></div></div>\`).join('');
+    let eleven = '';
+    if (v.elevenlabs) {
+      const ev = await api('/v1/voice/elevenlabs/voices').catch((err) => ({ error: err.message, voices: [] }));
+      const usingEleven = s.ttsProvider === 'elevenlabs';
+      eleven = '<h2>ElevenLabs voices</h2><p class="muted">British voices from your ElevenLabs account, speaking Jennifer\u2019s own greeting. The one you choose speaks her replies when you use Hold to talk.</p>' +
+        (ev.error ? \`<div class="card bad">\${esc(ev.error)}</div>\` : '') +
+        (ev.voices.length ? '' : '<div class="card muted">No female voices on your ElevenLabs account yet. Add some from the ElevenLabs Voice Library, then reopen this tab.</div>') +
+        ev.voices.slice(0, 12).map((x) => \`<div class="card"><strong>\${esc(x.name)}</strong> \${usingEleven && s.elevenVoiceId === x.voiceId ? '<span class="good">· Jennifer\\u2019s voice</span>' : ''}
+        <div class="muted">\${esc([x.accent, x.age, x.description].filter(Boolean).join(' · '))}</div>
+        <div class="row"><button class="btn" data-eaudition="\${esc(x.voiceId)}" data-mode="private">Play private</button><button class="btn" data-eaudition="\${esc(x.voiceId)}" data-mode="business">Play business</button>
+        <button class="btn primary" data-echoose="\${esc(x.voiceId)}">Choose</button></div></div>\`).join('') +
+        (usingEleven ? '<div class="row"><button class="btn" data-echoose="openai">Go back to the OpenAI voices</button></div>' : '');
+    }
     const slider = (k, min, max, step) => \`<label>\${k} <input type="range" data-voiceset="\${k}" min="\${min}" max="\${max}" step="\${step}" value="\${s[k]}"></label>\`;
     return (v.configured ? '' : '<div class="card bad">Voice needs OPENAI_API_KEY on the server.</div>') +
-      '<p class="muted">Listen to each voice and choose Jennifer\\u2019s. Private mode is how she speaks to you; business mode is how she sounds to everyone else.</p>' + cards +
+      '<p class="muted">Listen to each voice and choose Jennifer\\u2019s. Private mode is how she speaks to you; business mode is how she sounds to everyone else.</p>' + cards + eleven +
       \`<div class="card"><strong>Delivery</strong>\${slider('warmth', 0, 1, 0.1)}\${slider('playfulness', 0, 1, 0.1)}\${slider('speakingRate', 0.75, 1.25, 0.05)}
       <label>Mode <select data-voiceset="mode"><option value="private" \${s.mode === 'private' ? 'selected' : ''}>Private (with you)</option><option value="business" \${s.mode === 'business' ? 'selected' : ''}>Business</option></select></label>
       <label>Accent <select data-voiceset="accent">\${['british', 'american', 'australian', 'neutral'].map((a) => \`<option value="\${a}" \${(s.accent || 'british') === a ? 'selected' : ''}>\${a[0].toUpperCase() + a.slice(1)}</option>\`).join('')}</select></label></div>\`
@@ -315,6 +328,19 @@ document.addEventListener('click', async (e) => {
       const a = new Audio(URL.createObjectURL(await r.blob())); await a.play();
     } catch (err) { $('#status').textContent = 'Audition: ' + err.message; } finally { t.disabled = false; }
     return;
+  }
+  if (t.dataset.eaudition) {
+    t.disabled = true;
+    try {
+      const r = await fetch('/v1/voice/elevenlabs/audition?voice=' + encodeURIComponent(t.dataset.eaudition) + '&mode=' + t.dataset.mode + '&lang=' + voiceLang(), { headers: { authorization: 'Bearer ' + token } });
+      if (!r.ok) throw new Error((await r.json()).message || r.status);
+      const a = new Audio(URL.createObjectURL(await r.blob())); await a.play();
+    } catch (err) { $('#status').textContent = 'Audition: ' + err.message; } finally { t.disabled = false; }
+    return;
+  }
+  if (t.dataset.echoose) {
+    const body = t.dataset.echoose === 'openai' ? { ttsProvider: 'openai' } : { ttsProvider: 'elevenlabs', elevenVoiceId: t.dataset.echoose };
+    await api('/v1/voice/settings', { method: 'PUT', body: JSON.stringify(body) }); return show('voice');
   }
   if (t.dataset.choose) { await api('/v1/voice/settings', { method: 'PUT', body: JSON.stringify({ voiceId: t.dataset.choose }) }); return show('voice'); }
   if (t.dataset.push === 'enable') {

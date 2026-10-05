@@ -26,6 +26,12 @@ const ConfigSchema = z.object({
     model: z.string().default('claude-opus-5-5'),
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
   }),
+  /** ElevenLabs text-to-speech: licensed British voices for spoken replies and auditions. */
+  elevenlabs: z.object({
+    apiKey: z.string().optional(),
+    model: z.string().default('eleven_multilingual_v2'),
+    voiceId: z.string().regex(/^[A-Za-z0-9]{8,40}$/).optional(),
+  }),
   /** Which provider writes text: auto = OpenAI when its key is set, else Claude. */
   modelProvider: z.enum(['auto', 'openai', 'anthropic']).default('auto'),
   /** SMS on Jennifer's number (Twilio, or SignalWire via apiBase). */
@@ -93,6 +99,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       promptVersion: env.JENNIFER_PROMPT_VERSION,
     },
     anthropic: { apiKey: env.ANTHROPIC_API_KEY || undefined, model: env.JENNIFER_CLAUDE_MODEL || undefined, effort: env.JENNIFER_CLAUDE_EFFORT || undefined },
+    elevenlabs: { apiKey: env.ELEVENLABS_API_KEY || undefined, model: env.JENNIFER_ELEVENLABS_MODEL || undefined, voiceId: env.JENNIFER_ELEVENLABS_VOICE_ID || undefined },
     modelProvider: env.MODEL_PROVIDER || undefined,
     sms: {
       accountSid: env.TWILIO_ACCOUNT_SID || undefined,

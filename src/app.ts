@@ -34,6 +34,7 @@ import { TwilioSms } from './connectors/sms/twilio.js';
 import { BlueBubblesIMessage } from './connectors/imessage/bluebubbles.js';
 import { WhatsAppCloud } from './connectors/whatsapp/cloud.js';
 import { ChainedVoice } from './voice/chained.js';
+import { ElevenLabsTTS } from './voice/elevenlabs.js';
 import { CostLedger, DEFAULT_PRICING, MeteredModel, MeteredToolModel, type Pricing } from './ops/costs.js';
 import { FeedbackStore, ModelRegistry, type FeedbackKind } from './learning/feedback.js';
 import type { ControlsSnapshot, SuppressionRule } from './policy/controls.js';
@@ -181,7 +182,8 @@ export function createJennifer(opts: JenniferOptions = {}) {
       })(),
     });
   registerStandardTools(tools, { ownerId, conversations, memory, calendar, actions, dailyBrief });
-  const chainedVoice = new ChainedVoice({ apiKey: config.openai.apiKey, baseUrl: config.openai.baseUrl, fetchImpl: opts.fetchImpl, now: () => clock.now().getTime() });
+  const elevenlabs = new ElevenLabsTTS({ apiKey: config.elevenlabs.apiKey, model: config.elevenlabs.model, fetchImpl: opts.fetchImpl });
+  const chainedVoice = new ChainedVoice({ apiKey: config.openai.apiKey, baseUrl: config.openai.baseUrl, fetchImpl: opts.fetchImpl, now: () => clock.now().getTime(), elevenlabs });
   const voice = new RealtimeVoiceService({ apiKey: config.openai.apiKey, baseUrl: config.openai.baseUrl, model: config.openai.realtimeModel, fetchImpl: opts.fetchImpl });
   const memorySecrets = new Map<string, string>();
   const notifications = new NotificationService({
@@ -489,6 +491,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     imessage,
     whatsapp,
     chainedVoice,
+    elevenlabs,
     costs,
     metrics,
     retention,

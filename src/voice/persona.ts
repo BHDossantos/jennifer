@@ -17,6 +17,10 @@ export interface VoiceSettings {
   pronunciations: Record<string, string>;
   /** Accent for every language she speaks in English; default British. */
   accent?: 'british' | 'american' | 'australian' | 'neutral';
+  /** Who speaks her text replies: OpenAI TTS (default) or an ElevenLabs voice. */
+  ttsProvider?: 'openai' | 'elevenlabs';
+  /** ElevenLabs voice id chosen in the Voice tab. */
+  elevenVoiceId?: string;
 }
 
 export const DEFAULT_VOICE: VoiceSettings = {

@@ -18,6 +18,8 @@ export interface Pricing {
   text: Record<string, { inputPerM: number; outputPerM: number }>;
   voicePerMinute: number;
   phonePerMinute: number;
+  /** ElevenLabs speech, EUR per 1,000 characters. */
+  elevenLabsPerKChars?: number;
 }
 
 /** Rough planning prices (EUR); override with JENNIFER_PRICING_JSON after checking current vendor rates. */
@@ -31,6 +33,7 @@ export const DEFAULT_PRICING: Pricing = {
   },
   voicePerMinute: 0.2,
   phonePerMinute: 0.25,
+  elevenLabsPerKChars: 0.25,
 };
 
 export interface MonthTotals {

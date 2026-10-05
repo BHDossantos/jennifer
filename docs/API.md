@@ -85,6 +85,8 @@ Errors are JSON: `{ "error": "<code>", "message": "..." }` — `409` for policy/
 | GET | `/v1/voice` | owner |  |
 | PUT | `/v1/voice/settings` | owner |  |
 | GET | `/v1/voice/audition` | owner |  |
+| GET | `/v1/voice/elevenlabs/voices` | owner | British female voices on Bruno's ElevenLabs account (British/English accents first). |
+| GET | `/v1/voice/elevenlabs/audition` | owner | Jennifer's own greeting in an ElevenLabs voice, so Bruno hears her, not a stock sample. |
 | POST | `/v1/voice/turn` | owner |  |
 | POST | `/v1/voice/usage` | owner | The app reports how long a live voice conversation lasted (cost ledger). |
 | POST | `/v1/voice/session` | owner |  |

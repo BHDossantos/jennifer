@@ -140,3 +140,76 @@ describe('British voice and private persona', () => {
     expect(biz).not.toMatch(/sultry/);
   });
 });
+
+describe('ElevenLabs British voices', () => {
+  const XI_KEY = 'xi-test-SECRET-0123456789abcdef';
+  const VOICES = {
+    voices: [
+      { voice_id: 'AmericanVoice01', name: 'Rachel', category: 'premade', labels: { accent: 'american', gender: 'female' } },
+      { voice_id: 'BritishVoice001', name: 'Alice', category: 'premade', labels: { accent: 'british', gender: 'female', age: 'middle aged', description: 'confident' }, preview_url: 'https://x/p.mp3' },
+      { voice_id: 'BritishMale0001', name: 'George', category: 'premade', labels: { accent: 'british', gender: 'male' } },
+    ],
+  };
+
+  async function setup() {
+    const { createJennifer } = await import('../../src/app.js');
+    const { ScriptedToolModel } = await import('../../src/core/agentLoop.js');
+    const { buildServer } = await import('../../src/api/server.js');
+    const calls: Array<{ url: string; body: any; headers: Record<string, string> }> = [];
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      calls.push({ url, body: typeof init.body === 'string' ? JSON.parse(init.body) : init.body, headers: (init.headers ?? {}) as Record<string, string> });
+      if (url.endsWith('/v1/voices')) return new Response(JSON.stringify(VOICES), { status: 200 });
+      if (url.includes('/v1/text-to-speech/')) return new Response(new Uint8Array([9, 9, 9]), { status: 200 });
+      if (url.endsWith('/audio/transcriptions')) return new Response(JSON.stringify({ text: 'Call Bianchi' }), { status: 200 });
+      if (url.endsWith('/audio/speech')) return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+    const toolModel = new ScriptedToolModel(() => [{ type: 'assistant', text: 'Of course, darling. Calling Bianchi now.' }]);
+    const j = createJennifer({ fetchImpl, toolModel, config: { openai: { apiKey: 'sk-test-abcdefghijklmnopqrstuvwxyz' }, elevenlabs: { apiKey: XI_KEY } } as never, inventoryPath: null as never });
+    const app = buildServer(j, { tokens: { [OWNER]: 'owner' } });
+    return { j, app, calls, auth: { authorization: `Bearer ${OWNER}` } };
+  }
+
+  it('lists female voices with British accents first and never leaks the API key', async () => {
+    const { app, auth, calls } = await setup();
+    const res = await app.inject({ method: 'GET', url: '/v1/voice/elevenlabs/voices', headers: auth });
+    expect(res.json().voices.map((v: { voiceId: string }) => v.voiceId)).toEqual(['BritishVoice001', 'AmericanVoice01']);
+    expect(res.body).not.toContain(XI_KEY);
+    expect(calls[0]!.headers['xi-api-key']).toBe(XI_KEY);
+    expect((await app.inject({ method: 'GET', url: '/v1/voice', headers: auth })).json().elevenlabs).toBe(true);
+  });
+
+  it("auditions Jennifer's greeting, cached, with the sultry private settings", async () => {
+    const { app, auth, calls, j } = await setup();
+    const get = () => app.inject({ method: 'GET', url: '/v1/voice/elevenlabs/audition?voice=BritishVoice001&mode=private&lang=en', headers: auth });
+    const r = await get();
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['content-type']).toMatch(/audio\/mpeg/);
+    await get();
+    const tts = calls.filter((c) => c.url.includes('/v1/text-to-speech/'));
+    expect(tts).toHaveLength(1);
+    expect(tts[0]!.url).toContain('/v1/text-to-speech/BritishVoice001');
+    expect(tts[0]!.body.model_id).toBe('eleven_multilingual_v2');
+    expect(tts[0]!.body.voice_settings.stability).toBeLessThan(0.5);
+    expect((await j.costs.totals()).byPurpose.voice_audition).toBeDefined();
+    const unknown = await app.inject({ method: 'GET', url: '/v1/voice/elevenlabs/audition?voice=NotOnAccount1&mode=private', headers: auth });
+    expect(unknown.statusCode).toBeGreaterThanOrEqual(400);
+  });
+
+  it('a chosen ElevenLabs voice speaks push-to-talk replies, with pronunciations; unknown voices are refused', async () => {
+    const { app, auth, calls } = await setup();
+    const bad = await app.inject({ method: 'PUT', url: '/v1/voice/settings', headers: auth, payload: { ttsProvider: 'elevenlabs', elevenVoiceId: 'NotOnAccount1' } });
+    expect(bad.statusCode).toBeGreaterThanOrEqual(400);
+    await app.inject({ method: 'PUT', url: '/v1/voice/settings', headers: auth, payload: { ttsProvider: 'elevenlabs', elevenVoiceId: 'BritishVoice001', pronunciations: { Bianchi: 'Bee-AHN-kee' } } });
+    const r = await app.inject({ method: 'POST', url: '/v1/voice/turn?language=en', headers: { ...auth, 'content-type': 'audio/webm' }, payload: Buffer.alloc(4000, 1) });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().audioBase64).toBe(Buffer.from([9, 9, 9]).toString('base64'));
+    const tts = calls.find((c) => c.url.includes('/v1/text-to-speech/BritishVoice001'))!;
+    expect(tts.body.text).toBe('Of course, darling. Calling Bee-AHN-kee now.');
+    expect(calls.some((c) => c.url.endsWith('/audio/speech'))).toBe(false);
+    // Switching back uses OpenAI again.
+    await app.inject({ method: 'PUT', url: '/v1/voice/settings', headers: auth, payload: { ttsProvider: 'openai' } });
+    await app.inject({ method: 'POST', url: '/v1/voice/turn?language=en', headers: { ...auth, 'content-type': 'audio/webm' }, payload: Buffer.alloc(4000, 1) });
+    expect(calls.some((c) => c.url.endsWith('/audio/speech'))).toBe(true);
+  });
+});

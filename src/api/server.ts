@@ -17,7 +17,7 @@ import { MANIFEST, SERVICE_WORKER, appIcon } from './pwa.js';
 import { FEMALE_VOICE_CANDIDATES } from '../voice/realtime.js';
 import { MISSION_PRESETS, MissionInputSchema } from '../missions/missions.js';
 import { PrefsSchema, PushSubscriptionSchema } from '../notify/push.js';
-import { DEFAULT_VOICE, type VoiceSettings } from '../voice/persona.js';
+import { DEFAULT_VOICE, GREETINGS, type VoiceSettings } from '../voice/persona.js';
 import type { IdentityService, Session } from '../identity/identity.js';
 import type { GmailService } from '../connectors/gmail/service.js';
 import type { CalendarConnections } from '../calendar/remotes.js';
@@ -346,10 +346,15 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'search_ai_history', 'web_search', 'ask_ai', 'company_overview', 'start_company_workflow'];
   const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read', 'web:read', 'company:read', 'company:run']) };
   type StoredVoice = VoiceSettings & { mode: 'private' | 'business' };
-  const voiceSettings = async (): Promise<StoredVoice> => ({ ...DEFAULT_VOICE, voiceId: 'marin', mode: 'private', ...(await j.settings.get<StoredVoice>('voice')) });
+  const voiceSettings = async (): Promise<StoredVoice> => {
+    const stored = { ...DEFAULT_VOICE, voiceId: 'marin', mode: 'private' as const, ...(await j.settings.get<StoredVoice>('voice')) };
+    // A voice id set on the server (JENNIFER_ELEVENLABS_VOICE_ID) is the default until Bruno picks one in the app.
+    if (!stored.elevenVoiceId && j.config.elevenlabs.voiceId) return { ...stored, elevenVoiceId: j.config.elevenlabs.voiceId, ttsProvider: stored.ttsProvider ?? 'elevenlabs' };
+    return stored;
+  };
   const Lang = z.enum(['en', 'pt-BR', 'es', 'it']);
 
-  app.get('/v1/voice', owner, async () => ({ configured: j.voice.configured, candidates: FEMALE_VOICE_CANDIDATES, settings: await voiceSettings() }));
+  app.get('/v1/voice', owner, async () => ({ configured: j.voice.configured, elevenlabs: j.elevenlabs.configured, candidates: FEMALE_VOICE_CANDIDATES, settings: await voiceSettings() }));
   app.put('/v1/voice/settings', owner, async (req) => {
     const b = z
       .object({
@@ -363,16 +368,35 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
         accent: z.enum(['british', 'american', 'australian', 'neutral']).optional(),
         /** How to say names and words, e.g. {"Bianchi": "Bee-AHN-kee"}. */
         pronunciations: z.record(z.string().min(1).max(60), z.string().min(1).max(120)).optional(),
+        ttsProvider: z.enum(['openai', 'elevenlabs']).optional(),
+        elevenVoiceId: z.string().regex(/^[A-Za-z0-9]{8,40}$/).optional(),
       })
       .parse(req.body);
+    if (b.elevenVoiceId && !(await j.elevenlabs.voices()).some((v) => v.voiceId === b.elevenVoiceId)) throw new JenniferError('voice.unknown', 'That ElevenLabs voice is not on your account');
+    if (b.ttsProvider === 'elevenlabs' && !j.elevenlabs.configured) throw new JenniferError('voice.elevenlabs_not_configured', 'Set ELEVENLABS_API_KEY on the server to use ElevenLabs voices');
     const next = { ...(await voiceSettings()), ...b };
     await j.settings.set('voice', next);
-    j.audit.record(j.ownerId, 'voice.settings_changed', undefined, { voiceId: next.voiceId, mode: next.mode });
+    j.audit.record(j.ownerId, 'voice.settings_changed', undefined, { voiceId: next.voiceId, mode: next.mode, ttsProvider: next.ttsProvider, elevenVoiceId: next.elevenVoiceId });
     return next;
   });
   app.get('/v1/voice/audition', owner, async (req, reply) => {
     const q = z.object({ voice: z.string(), mode: z.enum(['private', 'business']).default('private'), lang: Lang.default('en') }).parse(req.query);
     const audio = await j.voice.sample(q.voice, q.mode, q.lang, await voiceSettings());
+    return reply.type('audio/mpeg').header('cache-control', 'private, max-age=86400').send(audio);
+  });
+  /** British female voices on Bruno's ElevenLabs account (British/English accents first). */
+  app.get('/v1/voice/elevenlabs/voices', owner, async () => {
+    if (!j.elevenlabs.configured) return { configured: false, voices: [] };
+    const voices = await j.elevenlabs.britishFemale();
+    return { configured: true, voices: voices.map(({ previewUrl: _p, ...v }) => v) };
+  });
+  /** Jennifer's own greeting in an ElevenLabs voice, so Bruno hears her, not a stock sample. */
+  app.get('/v1/voice/elevenlabs/audition', owner, async (req, reply) => {
+    const q = z.object({ voice: z.string().regex(/^[A-Za-z0-9]{8,40}$/), mode: z.enum(['private', 'business']).default('private'), lang: Lang.default('en') }).parse(req.query);
+    await j.costs.assertBudget('voice auditions');
+    const text = GREETINGS[q.mode][q.lang];
+    const audio = await j.elevenlabs.audition(q.voice, text, q.mode, await voiceSettings());
+    await j.costs.record('voice', 'voice_audition', (text.length / 1000) * (j.costs.pricing.elevenLabsPerKChars ?? 0.25));
     return reply.type('audio/mpeg').header('cache-control', 'private, max-age=86400').send(audio);
   });
   /** Ephemeral realtime credentials for the app; the OpenAI API key never leaves the server. */
@@ -396,6 +420,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     for (const [k, v] of Object.entries(turn.timingsMs)) j.metrics.observe(`voice_chained_${k}_ms`, v);
     // Audio minutes in and out, roughly: recording size is unknown in seconds, so use the reply length as the estimate.
     await j.costs.record('voice', 'voice_chained', (turn.reply.length / 900) * j.costs.pricing.voicePerMinute);
+    if (j.chainedVoice.usesElevenLabs(s)) await j.costs.record('voice', 'voice_elevenlabs', (turn.reply.length / 1000) * (j.costs.pricing.elevenLabsPerKChars ?? 0.25));
     return { sessionId, transcript: turn.transcript, reply: turn.reply, audioBase64: turn.audio.toString('base64'), timingsMs: turn.timingsMs };
   });
   /** The app reports how long a live voice conversation lasted (cost ledger). */

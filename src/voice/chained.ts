@@ -2,6 +2,7 @@ import { JenniferError } from '../core/types.js';
 import { redactSecrets } from '../security/redaction.js';
 import { deliveryDirection } from './realtime.js';
 import type { DeliveryMode, VoiceSettings } from './persona.js';
+import type { ElevenLabsTTS } from './elevenlabs.js';
 
 /**
  * Chained voice pipeline (spec §8): speech recognition → Jennifer's text
@@ -29,7 +30,7 @@ export function applyPronunciations(text: string, dict: Record<string, string>):
 
 export class ChainedVoice {
   constructor(
-    private cfg: { apiKey?: string; baseUrl: string; asrModel?: string; ttsModel?: string; fetchImpl?: typeof fetch; now?: () => number },
+    private cfg: { apiKey?: string; baseUrl: string; asrModel?: string; ttsModel?: string; fetchImpl?: typeof fetch; now?: () => number; elevenlabs?: ElevenLabsTTS },
   ) {}
 
   private f() {
@@ -52,7 +53,15 @@ export class ChainedVoice {
     return ((await res.json()) as { text?: string }).text?.trim() ?? '';
   }
 
+  /** True when replies will be spoken by ElevenLabs for these settings. */
+  usesElevenLabs(settings: VoiceSettings): boolean {
+    return settings.ttsProvider === 'elevenlabs' && !!settings.elevenVoiceId && !!this.cfg.elevenlabs?.configured;
+  }
+
   async speak(text: string, voice: string, mode: DeliveryMode, settings: VoiceSettings): Promise<Buffer> {
+    if (this.usesElevenLabs(settings)) {
+      return this.cfg.elevenlabs!.speak(applyPronunciations(text, settings.pronunciations ?? {}), settings.elevenVoiceId!, mode, settings);
+    }
     const res = await this.f()(`${this.cfg.baseUrl}/audio/speech`, {
       method: 'POST',
       headers: { authorization: `Bearer ${this.key()}`, 'content-type': 'application/json' },

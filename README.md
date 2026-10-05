@@ -19,6 +19,7 @@ Bruno's persistent executive assistant: backend foundation, policy engine, durab
 2. **Register your passkey:** on the iPhone, open the service URL in Safari and tap **Sign in with passkey**. The first time it asks for the bootstrap token (Render → Environment → `JENNIFER_API_TOKEN`) and registers Face ID.
 3. **Install:** Share → **Add to Home Screen**. Jennifer now opens full-screen like an app.
 4. **Voice:** in the **Voice** tab, play the four voices and choose one. Tap **Talk** anywhere to speak with her.
+   - **ElevenLabs (optional, best British voices):** set `ELEVENLABS_API_KEY`. The Voice tab then lists the female voices on your ElevenLabs account, British accents first, each speaking Jennifer's own greeting in private and business style. **Choose** one and it speaks her **Hold to talk** replies (your pronunciation list still applies). Add more voices from the ElevenLabs Voice Library and they appear here. The live **Talk** button stays on OpenAI Realtime, which is faster.
 5. **Gmail:** Google Account → Security → 2-Step Verification → **App passwords** → create "Jennifer". In **Connections**, paste your address and the app password.
 6. **Missions:** in **Missions**, start "Inbox watch" or "Morning priorities", or write your own goal and choose what she may do alone.
 7. **Calendar:** in **Connections**, connect iCloud Calendar (appleid.apple.com → App-Specific Passwords) and optionally your Google Calendar's secret iCal address (read-only).
@@ -125,6 +126,7 @@ Node ≥ 20. Copy `.env.example` to `.env` for configuration. Set `JENNIFER_SEED
 | `src/memory/aiHistory.ts` | §11 | ChatGPT and Claude history bridge: exports (incl. Claude projects), Send-to-Jennifer clips, search, memory suggestions for review |
 | `src/connectors/sms/` | §7 | SMS on Jennifer's number (Twilio/SignalWire), signed webhooks, reconciliation, urgent SMS fallback |
 | `src/voice/chained.ts` | §8 | Push-to-talk: transcription → Jennifer → speech, with pronunciations and per-stage latency |
+| `src/voice/elevenlabs.ts` | §8 | ElevenLabs voices (British female first), greeting auditions, private/business delivery mapped to voice settings |
 | `src/research/web.ts` | §12 | Web search (provider-hosted) and safe page reading for chat, missions and voice |
 | `src/ops/` | §17, §18 | Cost ledger with monthly ceiling, metrics, retention job |
 | `src/company/`, `public/company.js` | Company OS | Companies, 137-role catalog, role executor, runs/events, company brain, CRM, WF-01/02/03, command center |
