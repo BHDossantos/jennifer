@@ -19,16 +19,33 @@ export interface ElevenVoice {
   category?: string;
 }
 
+/** Voices Bruno picked on elevenlabs.io; always offered, even before they are added to "My Voices". */
+export const PINNED_VOICES: Array<{ voiceId: string; name: string; note: string }> = [
+  { voiceId: 'LM5QaByxyWDmNhcQTYiS', name: 'Jennifer', note: 'your pick' },
+  { voiceId: 'kLhAstPcnnPxqzk6gS5i', name: 'Jennifer (alternative)', note: 'from your code sample' },
+];
+
+/** Models with expressive audio tags ([soft], [whisper]...) and the coarse stability scale. */
+export const isExpressiveModel = (model: string) => /^eleven_v[3-9]/.test(model);
+const FALLBACK_MODEL = 'eleven_multilingual_v2';
+
 export class ElevenLabsTTS {
+  private modelRejected = false;
   private voiceCache?: { at: number; voices: ElevenVoice[] };
   private auditions = new Map<string, Buffer>();
 
   constructor(
-    private c: { apiKey?: string; model?: string; baseUrl?: string; fetchImpl?: typeof fetch },
+    private c: { apiKey?: string; model?: string; baseUrl?: string; fetchImpl?: typeof fetch; /** Voice chosen on the server; usable even before it shows in the account's list. */ defaultVoiceId?: string },
   ) {}
 
   get configured(): boolean {
     return !!this.c.apiKey;
+  }
+
+  /** A voice Jennifer may speak with: on the account, or the server-configured choice. */
+  async isAllowed(voiceId: string): Promise<boolean> {
+    if (voiceId === this.c.defaultVoiceId || PINNED_VOICES.some((p) => p.voiceId === voiceId)) return true;
+    return (await this.voices()).some((v) => v.voiceId === voiceId);
   }
 
   private base() {
@@ -70,7 +87,7 @@ export class ElevenLabsTTS {
 
   /** Jennifer's greeting in one of the account's voices, cached per voice and delivery. */
   async audition(voiceId: string, text: string, mode: DeliveryMode, s: Pick<VoiceSettings, 'warmth' | 'playfulness' | 'speakingRate'>): Promise<Buffer> {
-    if (!(await this.voices()).some((v) => v.voiceId === voiceId)) throw new JenniferError('voice.unknown', 'That ElevenLabs voice is not on your account');
+    if (!(await this.isAllowed(voiceId))) throw new JenniferError('voice.unknown', 'That ElevenLabs voice is not on your account');
     const key = `${voiceId}|${mode}|${text}|${s.warmth}|${s.playfulness}|${s.speakingRate}`;
     const hit = this.auditions.get(key);
     if (hit) return hit;
@@ -83,23 +100,59 @@ export class ElevenLabsTTS {
   /**
    * Speak with the private/business delivery mapped onto ElevenLabs' voice
    * settings: lower stability and more style for the intimate private voice,
-   * steadier and plainer for business.
+   * steadier and plainer for business. Uses eleven_v4 by default and falls
+   * back to eleven_multilingual_v2 if the account can't use it.
    */
-  async speak(text: string, voiceId: string, mode: DeliveryMode, s: Pick<VoiceSettings, 'warmth' | 'playfulness' | 'speakingRate'>): Promise<Buffer> {
+  get model(): string {
+    return this.modelRejected ? FALLBACK_MODEL : (this.c.model ?? FALLBACK_MODEL);
+  }
+
+  /** Request body for a model: expressive models get a mood tag and the coarse stability scale. */
+  body(text: string, mode: DeliveryMode, s: Pick<VoiceSettings, 'warmth' | 'playfulness' | 'speakingRate'>, model: string) {
     const priv = mode === 'private';
-    const voice_settings = {
-      stability: priv ? Math.max(0.25, 0.5 - s.playfulness * 0.25) : 0.65,
-      similarity_boost: 0.8,
-      style: priv ? Math.min(0.7, 0.25 + s.warmth * 0.3 + s.playfulness * 0.15) : 0.1,
-      use_speaker_boost: true,
-      speed: Math.min(1.2, Math.max(0.7, s.speakingRate)),
+    if (isExpressiveModel(model)) {
+      // Private: warm and intimate; business: composed. Tags steer delivery and are not spoken.
+      const tag = priv ? (s.warmth >= 0.7 ? '[warm, intimate] ' : '[warm] ') : '[calm, professional] ';
+      return { text: (/^\s*\[/.test(text) ? text : tag + text).slice(0, 5000), model_id: model, voice_settings: { stability: priv ? 0.5 : 1, similarity_boost: 0.8 } };
+    }
+    return {
+      text: text.slice(0, 5000),
+      model_id: model,
+      voice_settings: {
+        stability: priv ? Math.max(0.25, 0.5 - s.playfulness * 0.25) : 0.65,
+        similarity_boost: 0.8,
+        style: priv ? Math.min(0.7, 0.25 + s.warmth * 0.3 + s.playfulness * 0.15) : 0.1,
+        use_speaker_boost: true,
+        speed: Math.min(1.2, Math.max(0.7, s.speakingRate)),
+      },
     };
-    const res = await (this.c.fetchImpl ?? fetch)(`${this.base()}/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
-      method: 'POST',
-      headers: { 'xi-api-key': this.key(), 'content-type': 'application/json', accept: 'audio/mpeg' },
-      body: JSON.stringify({ text: text.slice(0, 5000), model_id: this.c.model ?? 'eleven_multilingual_v2', voice_settings }),
-    });
+  }
+
+  async speak(text: string, voiceId: string, mode: DeliveryMode, s: Pick<VoiceSettings, 'warmth' | 'playfulness' | 'speakingRate'>): Promise<Buffer> {
+    const post = (model: string) =>
+      (this.c.fetchImpl ?? fetch)(`${this.base()}/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
+        method: 'POST',
+        headers: { 'xi-api-key': this.key(), 'content-type': 'application/json', accept: 'audio/mpeg' },
+        body: JSON.stringify(this.body(text, mode, s, model)),
+      });
+    let res = await post(this.model);
+    if ((res.status === 400 || res.status === 404 || res.status === 422) && this.model !== FALLBACK_MODEL) {
+      const detail = await res.clone().text();
+      // The account or region can't use the newest model yet: fall back once and remember.
+      if (/model/i.test(detail) && !/voice/i.test(detail)) {
+        this.modelRejected = true;
+        res = await post(FALLBACK_MODEL);
+      }
+    }
     if (res.status === 401) throw new JenniferError('voice.elevenlabs_auth', 'ElevenLabs rejected the API key');
+    if (res.status === 402) throw new JenniferError('voice.elevenlabs_plan', 'ElevenLabs needs a paid plan to use Voice Library voices through the API (Starter or above)');
+    if (res.status === 404 || res.status === 400) {
+      const body = redactSecrets(await res.text());
+      if (/voice/i.test(body) && /not.?found|does not exist|not_found/i.test(body)) {
+        throw new JenniferError('voice.elevenlabs_voice_missing', `ElevenLabs can't find voice ${voiceId}. Open elevenlabs.io/voices/${voiceId} and tap "Add to my voices", then try again`);
+      }
+      throw new JenniferError('voice.elevenlabs_error', `ElevenLabs speech failed (${res.status}): ${body.slice(0, 200)}`);
+    }
     if (!res.ok) throw new JenniferError('voice.elevenlabs_error', `ElevenLabs speech failed (${res.status}): ${redactSecrets(await res.text()).slice(0, 200)}`);
     return Buffer.from(await res.arrayBuffer());
   }

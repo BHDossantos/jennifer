@@ -96,7 +96,7 @@ export interface JenniferOptions {
 export function createJennifer(opts: JenniferOptions = {}) {
   const clock = opts.clock ?? systemClock;
   const base = loadConfig({ ...process.env, JENNIFER_ENV: process.env.JENNIFER_ENV ?? 'development' });
-  const config: Config = { ...base, ...opts.config, openai: { ...base.openai, ...opts.config?.openai }, budgets: { ...base.budgets, ...opts.config?.budgets } };
+  const config: Config = { ...base, ...opts.config, openai: { ...base.openai, ...opts.config?.openai }, elevenlabs: { ...base.elevenlabs, ...opts.config?.elevenlabs }, budgets: { ...base.budgets, ...opts.config?.budgets } };
   const ownerId = config.ownerId;
 
   const audit = new AuditLog(clock);
@@ -182,7 +182,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
       })(),
     });
   registerStandardTools(tools, { ownerId, conversations, memory, calendar, actions, dailyBrief });
-  const elevenlabs = new ElevenLabsTTS({ apiKey: config.elevenlabs.apiKey, model: config.elevenlabs.model, fetchImpl: opts.fetchImpl });
+  const elevenlabs = new ElevenLabsTTS({ apiKey: config.elevenlabs.apiKey, model: config.elevenlabs.model, defaultVoiceId: config.elevenlabs.voiceId, fetchImpl: opts.fetchImpl });
   const chainedVoice = new ChainedVoice({ apiKey: config.openai.apiKey, baseUrl: config.openai.baseUrl, fetchImpl: opts.fetchImpl, now: () => clock.now().getTime(), elevenlabs });
   const voice = new RealtimeVoiceService({ apiKey: config.openai.apiKey, baseUrl: config.openai.baseUrl, model: config.openai.realtimeModel, fetchImpl: opts.fetchImpl });
   const memorySecrets = new Map<string, string>();

@@ -151,7 +151,7 @@ describe('ElevenLabs British voices', () => {
     ],
   };
 
-  async function setup() {
+  async function setup(tts?: (url: string) => Response | undefined) {
     const { createJennifer } = await import('../../src/app.js');
     const { ScriptedToolModel } = await import('../../src/core/agentLoop.js');
     const { buildServer } = await import('../../src/api/server.js');
@@ -159,6 +159,8 @@ describe('ElevenLabs British voices', () => {
     const fetchImpl = (async (url: string, init: RequestInit = {}) => {
       calls.push({ url, body: typeof init.body === 'string' ? JSON.parse(init.body) : init.body, headers: (init.headers ?? {}) as Record<string, string> });
       if (url.endsWith('/v1/voices')) return new Response(JSON.stringify(VOICES), { status: 200 });
+      const custom = tts?.(url);
+      if (custom) return custom;
       if (url.includes('/v1/text-to-speech/')) return new Response(new Uint8Array([9, 9, 9]), { status: 200 });
       if (url.endsWith('/audio/transcriptions')) return new Response(JSON.stringify({ text: 'Call Bianchi' }), { status: 200 });
       if (url.endsWith('/audio/speech')) return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
@@ -173,7 +175,8 @@ describe('ElevenLabs British voices', () => {
   it('lists female voices with British accents first and never leaks the API key', async () => {
     const { app, auth, calls } = await setup();
     const res = await app.inject({ method: 'GET', url: '/v1/voice/elevenlabs/voices', headers: auth });
-    expect(res.json().voices.map((v: { voiceId: string }) => v.voiceId)).toEqual(['BritishVoice001', 'AmericanVoice01']);
+    expect(res.json().voices.map((v: { voiceId: string }) => v.voiceId)).toEqual(['LM5QaByxyWDmNhcQTYiS', 'kLhAstPcnnPxqzk6gS5i', 'BritishVoice001', 'AmericanVoice01']);
+    expect(res.json().voices[0]).toMatchObject({ recommended: true, inAccount: false });
     expect(res.body).not.toContain(XI_KEY);
     expect(calls[0]!.headers['xi-api-key']).toBe(XI_KEY);
     expect((await app.inject({ method: 'GET', url: '/v1/voice', headers: auth })).json().elevenlabs).toBe(true);
@@ -189,8 +192,8 @@ describe('ElevenLabs British voices', () => {
     const tts = calls.filter((c) => c.url.includes('/v1/text-to-speech/'));
     expect(tts).toHaveLength(1);
     expect(tts[0]!.url).toContain('/v1/text-to-speech/BritishVoice001');
-    expect(tts[0]!.body.model_id).toBe('eleven_multilingual_v2');
-    expect(tts[0]!.body.voice_settings.stability).toBeLessThan(0.5);
+    expect(tts[0]!.body.model_id).toBe('eleven_v4');
+    expect(tts[0]!.body.text).toMatch(/^\[warm, intimate\] /);
     expect((await j.costs.totals()).byPurpose.voice_audition).toBeDefined();
     const unknown = await app.inject({ method: 'GET', url: '/v1/voice/elevenlabs/audition?voice=NotOnAccount1&mode=private', headers: auth });
     expect(unknown.statusCode).toBeGreaterThanOrEqual(400);
@@ -205,11 +208,45 @@ describe('ElevenLabs British voices', () => {
     expect(r.statusCode).toBe(200);
     expect(r.json().audioBase64).toBe(Buffer.from([9, 9, 9]).toString('base64'));
     const tts = calls.find((c) => c.url.includes('/v1/text-to-speech/BritishVoice001'))!;
-    expect(tts.body.text).toBe('Of course, darling. Calling Bee-AHN-kee now.');
+    expect(tts.body.text).toBe('[warm, intimate] Of course, darling. Calling Bee-AHN-kee now.');
     expect(calls.some((c) => c.url.endsWith('/audio/speech'))).toBe(false);
     // Switching back uses OpenAI again.
     await app.inject({ method: 'PUT', url: '/v1/voice/settings', headers: auth, payload: { ttsProvider: 'openai' } });
     await app.inject({ method: 'POST', url: '/v1/voice/turn?language=en', headers: { ...auth, 'content-type': 'audio/webm' }, payload: Buffer.alloc(4000, 1) });
     expect(calls.some((c) => c.url.endsWith('/audio/speech'))).toBe(true);
+  });
+
+  it("speaks in Bruno's chosen voice (LM5QaByxyWDmNhcQTYiS) by default, and explains how to add it if ElevenLabs can't find it", async () => {
+    const { app, auth, calls } = await setup();
+    const v = (await app.inject({ method: 'GET', url: '/v1/voice', headers: auth })).json();
+    expect(v.settings).toMatchObject({ ttsProvider: 'elevenlabs', elevenVoiceId: 'LM5QaByxyWDmNhcQTYiS' });
+    const r = await app.inject({ method: 'POST', url: '/v1/voice/turn?language=en', headers: { ...auth, 'content-type': 'audio/webm' }, payload: Buffer.alloc(4000, 1) });
+    expect(r.statusCode).toBe(200);
+    expect(calls.some((c) => c.url.includes('/v1/text-to-speech/LM5QaByxyWDmNhcQTYiS'))).toBe(true);
+    const a = await app.inject({ method: 'GET', url: '/v1/voice/elevenlabs/audition?voice=LM5QaByxyWDmNhcQTYiS&mode=private', headers: auth });
+    expect(a.statusCode).toBe(200);
+
+    const missing = await setup((url) => (url.includes('/v1/text-to-speech/') ? new Response(JSON.stringify({ detail: { status: 'voice_not_found', message: 'A voice with the voice_id was not found.' } }), { status: 404 }) : undefined));
+    const m = await missing.app.inject({ method: 'GET', url: '/v1/voice/elevenlabs/audition?voice=LM5QaByxyWDmNhcQTYiS&mode=private', headers: missing.auth });
+    expect(m.json().message).toMatch(/Add to my voices/);
+  });
+
+  it('falls back to eleven_multilingual_v2 when the account cannot use eleven_v4', async () => {
+    const models: string[] = [];
+    const { ElevenLabsTTS } = await import('../../src/voice/elevenlabs.js');
+    const tts = new ElevenLabsTTS({
+      apiKey: XI_KEY,
+      model: 'eleven_v4',
+      fetchImpl: (async (_url: string, init: RequestInit) => {
+        const m = JSON.parse(String(init.body)).model_id as string;
+        models.push(m);
+        return m === 'eleven_v4' ? new Response(JSON.stringify({ detail: { status: 'invalid_model', message: 'model_id eleven_v4 is not available' } }), { status: 400 }) : new Response(new Uint8Array([7]), { status: 200 });
+      }) as unknown as typeof fetch,
+    });
+    const s = { warmth: 0.8, playfulness: 0.5, speakingRate: 1 };
+    expect([...(await tts.speak('Hello', 'LM5QaByxyWDmNhcQTYiS', 'private', s))]).toEqual([7]);
+    await tts.speak('Again', 'LM5QaByxyWDmNhcQTYiS', 'business', s);
+    expect(models).toEqual(['eleven_v4', 'eleven_multilingual_v2', 'eleven_multilingual_v2']);
+    expect(tts.body('Hello', 'business', s, 'eleven_multilingual_v2').voice_settings).toMatchObject({ stability: 0.65 });
   });
 });

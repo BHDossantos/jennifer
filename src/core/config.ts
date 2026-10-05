@@ -29,8 +29,9 @@ const ConfigSchema = z.object({
   /** ElevenLabs text-to-speech: licensed British voices for spoken replies and auditions. */
   elevenlabs: z.object({
     apiKey: z.string().optional(),
-    model: z.string().default('eleven_multilingual_v2'),
-    voiceId: z.string().regex(/^[A-Za-z0-9]{8,40}$/).optional(),
+    model: z.string().default('eleven_v4'),
+    /** Bruno's chosen ElevenLabs voice (elevenlabs.io/voices/LM5QaByxyWDmNhcQTYiS). */
+    voiceId: z.string().regex(/^[A-Za-z0-9]{8,40}$/).default('LM5QaByxyWDmNhcQTYiS'),
   }),
   /** Which provider writes text: auto = OpenAI when its key is set, else Claude. */
   modelProvider: z.enum(['auto', 'openai', 'anthropic']).default('auto'),

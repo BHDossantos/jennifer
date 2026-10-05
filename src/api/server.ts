@@ -18,6 +18,7 @@ import { FEMALE_VOICE_CANDIDATES } from '../voice/realtime.js';
 import { MISSION_PRESETS, MissionInputSchema } from '../missions/missions.js';
 import { PrefsSchema, PushSubscriptionSchema } from '../notify/push.js';
 import { DEFAULT_VOICE, GREETINGS, type VoiceSettings } from '../voice/persona.js';
+import { PINNED_VOICES } from '../voice/elevenlabs.js';
 import type { IdentityService, Session } from '../identity/identity.js';
 import type { GmailService } from '../connectors/gmail/service.js';
 import type { CalendarConnections } from '../calendar/remotes.js';
@@ -372,7 +373,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
         elevenVoiceId: z.string().regex(/^[A-Za-z0-9]{8,40}$/).optional(),
       })
       .parse(req.body);
-    if (b.elevenVoiceId && !(await j.elevenlabs.voices()).some((v) => v.voiceId === b.elevenVoiceId)) throw new JenniferError('voice.unknown', 'That ElevenLabs voice is not on your account');
+    if (b.elevenVoiceId && !(await j.elevenlabs.isAllowed(b.elevenVoiceId))) throw new JenniferError('voice.unknown', 'That ElevenLabs voice is not on your account');
     if (b.ttsProvider === 'elevenlabs' && !j.elevenlabs.configured) throw new JenniferError('voice.elevenlabs_not_configured', 'Set ELEVENLABS_API_KEY on the server to use ElevenLabs voices');
     const next = { ...(await voiceSettings()), ...b };
     await j.settings.set('voice', next);
@@ -387,8 +388,15 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   /** British female voices on Bruno's ElevenLabs account (British/English accents first). */
   app.get('/v1/voice/elevenlabs/voices', owner, async () => {
     if (!j.elevenlabs.configured) return { configured: false, voices: [] };
-    const voices = await j.elevenlabs.britishFemale();
-    return { configured: true, voices: voices.map(({ previewUrl: _p, ...v }) => v) };
+    const voices = (await j.elevenlabs.britishFemale()).map(({ previewUrl: _p, ...v }) => v);
+    // Bruno's picks come first, even if they aren't in "My Voices" on the account yet.
+    const account = await j.elevenlabs.voices();
+    const picks = [{ voiceId: j.config.elevenlabs.voiceId, name: 'Jennifer', note: 'your pick' }, ...PINNED_VOICES].filter((p, i, a) => a.findIndex((x) => x.voiceId === p.voiceId) === i);
+    const top = picks.map((p) => {
+      const mine = account.find((v) => v.voiceId === p.voiceId);
+      return { ...(mine ? (({ previewUrl: _p, ...v }) => v)(mine) : { voiceId: p.voiceId, name: p.name }), note: p.note, recommended: true, inAccount: !!mine };
+    });
+    return { configured: true, model: j.elevenlabs.model, voices: [...top, ...voices.filter((v) => !picks.some((p) => p.voiceId === v.voiceId))] };
   });
   /** Jennifer's own greeting in an ElevenLabs voice, so Bruno hears her, not a stock sample. */
   app.get('/v1/voice/elevenlabs/audition', owner, async (req, reply) => {

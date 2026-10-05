@@ -27,8 +27,8 @@ services:
         sync: false
       - key: ELEVENLABS_API_KEY      # optional: ElevenLabs British voices (elevenlabs.io → Profile → API keys)
         sync: false
-      - key: JENNIFER_ELEVENLABS_VOICE_ID  # optional: default ElevenLabs voice; you can also pick one in the Voice tab
-        sync: false
+      - key: JENNIFER_ELEVENLABS_VOICE_ID  # Jennifer's voice (elevenlabs.io/voices/LM5QaByxyWDmNhcQTYiS)
+        value: LM5QaByxyWDmNhcQTYiS
       - key: MODEL_PROVIDER          # auto | openai | anthropic (auto = OpenAI when its key is set)
         value: auto
       - key: JENNIFER_EMAIL_SANDBOX  # optional: only these recipients until you remove it

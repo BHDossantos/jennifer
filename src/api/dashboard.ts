@@ -218,7 +218,7 @@ const views = {
       eleven = '<h2>ElevenLabs voices</h2><p class="muted">British voices from your ElevenLabs account, speaking Jennifer\u2019s own greeting. The one you choose speaks her replies when you use Hold to talk.</p>' +
         (ev.error ? \`<div class="card bad">\${esc(ev.error)}</div>\` : '') +
         (ev.voices.length ? '' : '<div class="card muted">No female voices on your ElevenLabs account yet. Add some from the ElevenLabs Voice Library, then reopen this tab.</div>') +
-        ev.voices.slice(0, 12).map((x) => \`<div class="card"><strong>\${esc(x.name)}</strong> \${usingEleven && s.elevenVoiceId === x.voiceId ? '<span class="good">· Jennifer\\u2019s voice</span>' : ''}
+        ev.voices.slice(0, 12).map((x) => \`<div class="card"><strong>\${esc(x.name)}</strong>\${x.note ? ' <span class="muted">(' + esc(x.note) + ')</span>' : ''} \${usingEleven && s.elevenVoiceId === x.voiceId ? '<span class="good">· Jennifer\\u2019s voice</span>' : ''}
         <div class="muted">\${esc([x.accent, x.age, x.description].filter(Boolean).join(' · '))}</div>
         <div class="row"><button class="btn" data-eaudition="\${esc(x.voiceId)}" data-mode="private">Play private</button><button class="btn" data-eaudition="\${esc(x.voiceId)}" data-mode="business">Play business</button>
         <button class="btn primary" data-echoose="\${esc(x.voiceId)}">Choose</button></div></div>\`).join('') +
