@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { newId } from '../core/util.js';
 import { renderUntrusted, wrapUntrusted } from '../security/untrusted.js';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
@@ -104,6 +105,15 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   app.get('/health', async () => ({ ok: true }));
   app.get('/', async (_req, reply) => reply.type('text/html').header('cache-control', 'no-cache').send(DASHBOARD_HTML));
   app.get('/manifest.webmanifest', async (_req, reply) => reply.type('application/manifest+json').send(MANIFEST));
+  // Company OS command center (client script, served next to the dashboard).
+  const companyJs = (() => {
+    try {
+      return readFileSync('public/company.js', 'utf8');
+    } catch {
+      return '/* company.js missing */';
+    }
+  })();
+  app.get('/company.js', async (_req, reply) => reply.type('text/javascript').header('cache-control', 'no-cache').send(companyJs));
   app.get('/sw.js', async (_req, reply) => reply.type('text/javascript').header('cache-control', 'no-cache').send(SERVICE_WORKER));
   app.get('/icon-192.png', async (_req, reply) => reply.type('image/png').send(appIcon(192)));
   app.get('/icon-512.png', async (_req, reply) => reply.type('image/png').send(appIcon(512)));

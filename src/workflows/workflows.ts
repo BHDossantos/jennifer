@@ -129,7 +129,7 @@ export class WorkflowRegistry {
 
 /** Detects a recipient's stop request in their reply. */
 export function isStopRequest(text: string): boolean {
-  return /\b(stop|unsubscribe|remove me|do not contact|don't contact|no more (emails|messages)|non contattarmi|non scrivermi più|smetti di scrivermi|cancellami|toglimi|pare de|não me contate|não me contacte|descadastre|me descadastrar|no me contacte|deja de escribirme|dame de baja|darme de baja)\b/i.test(text);
+  return /\b(stop|unsubscribe|remove me|do not contact|don't contact|no more (emails|messages)|non contattarmi|non scrivermi più|smetti di scrivermi|cancellami|toglimi|pare de|não me contate|não me contacte|descadastre|me descadastrar|no me contacte|deja de escribirme|dame de baja|darme de baja|ne me contactez plus|ne plus me contacter|désabonnez-moi|desabonnez-moi|me désinscrire|me desinscrire|arrêtez de m'écrire|arretez de m'ecrire)\b/i.test(text);
 }
 
 export interface DailyBrief {

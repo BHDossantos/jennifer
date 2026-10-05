@@ -16,6 +16,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist/src ./dist/src
 COPY db ./db
 COPY config ./config
+COPY public ./public
 USER node
 EXPOSE 8080
 ENV PORT=8080

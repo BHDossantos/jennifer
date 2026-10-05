@@ -22,6 +22,10 @@ const INJECTION_PATTERNS: Array<[string, RegExp]> = [
   ['exfiltration_request', /\b(inoltra|invia|inviami|manda|mandami|condividi|encaminhe|encaminha|envie|envia|compartilhe|reenvía|reenvia|envía|envíame|enviame|mándame|comparte)\b[^.]{0,60}\b(tutte|tutti|todas|todos)\b[^.]{0,40}\b(e-?mails?|messaggi|mensagens|mensajes|estratti|extratos|extractos|documenti|documentos|contatti|contatos|contactos|correos)\b/i],
   ['credential_request', /\b(invia|inviami|dimmi|fornisci|manda|envie|me envie|informe|diga|envíame|envíe|dime|proporciona)\b[^.]{0,40}\b(password|senha|contraseña|codice di verifica|codice otp|código de verificação|código de verificación|código|codice)\b/i],
   ['settings_change', /\b(cambia|modifica|disattiva|altere|mude|desative|desativa|desactiva|cambie)\b[^.]{0,40}\b(impostazioni|permessi|inoltro|configurações|permissões|encaminhamento|configuración|permisos|reenvío)\b/i],
+  // French (Company OS drafting language).
+  ['instruction_override', /\b(ignorez|ignore|oubliez)\b[^.]{0,40}\b(instructions|règles|regles|consignes)\b/i],
+  ['exfiltration_request', /\b(transférez|transferez|envoyez|envoyez-moi|partagez)\b[^.]{0,60}\b(tous|toutes)\b[^.]{0,40}\b(e-?mails?|messages|relevés|releves|documents|contacts|fichiers)\b/i],
+  ['credential_request', /\b(envoyez|envoyez-moi|donnez|communiquez)\b[^.]{0,40}\b(mot de passe|code de vérification|code de verification|code)\b/i],
   // Patterns below adapted from OpenJarvis security/injection_scanner.py (Apache-2.0); see THIRD_PARTY_LICENSES.
   ['identity_override', /\byou\s+are\s+now\s+(?:a\s+)?(?:different|new|my)\b/i],
   ['code_injection', /\b(?:execute|run|eval)\s*\(\s*['"]/i],
@@ -34,7 +38,7 @@ const INJECTION_PATTERNS: Array<[string, RegExp]> = [
 ];
 
 export function detectInjection(text: string): string[] {
-  return INJECTION_PATTERNS.filter(([, re]) => re.test(text)).map(([k]) => k);
+  return [...new Set(INJECTION_PATTERNS.filter(([, re]) => re.test(text)).map(([k]) => k))];
 }
 
 /** Remove markup that could hide instructions; keep visible text as evidence. */

@@ -254,6 +254,7 @@ const views = {
 let current = 'today';
 let convOpen = null;
 async function show(tab) {
+  if (!views[tab]) tab = 'today';
   current = tab;
   document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'));
   try { $('#view').innerHTML = await views[tab](); if (/^Error/.test($('#status').textContent)) $('#status').textContent = ''; } catch (e) { $('#status').textContent = 'Error: ' + e.message; }
@@ -506,5 +507,6 @@ const googleResult = new URLSearchParams(location.search).get('google');
 if (googleResult) setTimeout(() => { $('#status').textContent = googleResult === 'connected' ? 'Google Calendar connected.' : 'Google Calendar: ' + googleResult; }, 500);
 if (token) show(startTab && views[startTab] ? startTab : 'today'); else $('#view').innerHTML = '<p class="muted">Sign in with your passkey to continue.</p>';
 </script>
+<script src="/company.js"></script>
 </body>
 </html>`;

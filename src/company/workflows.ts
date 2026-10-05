@@ -6,6 +6,7 @@ import type { SuppressionList } from '../policy/controls.js';
 import type { CapabilityRegistry } from '../connectors/capabilities.js';
 import type { CostLedger } from '../ops/costs.js';
 import { detectClaims } from '../security/claims.js';
+import { isStopRequest } from '../workflows/workflows.js';
 import type { Evidence } from './executor.js';
 import type { StepContext, StepResult, WorkflowDef } from './engine.js';
 import { canonicalDomain } from './crm.js';
@@ -229,6 +230,12 @@ export function replyToNextAction(d: WorkflowDeps): WorkflowDef {
           const t = ctx.run.state.triage as z.infer<typeof TriageData>;
           const from = ctx.run.state.from as string;
           const c = ctx.company.id as CompanyId;
+          // Deterministic safety net: an explicit stop request is an opt-out even if the model missed it (100% opt-out recall).
+          const lastBody = d.conversations.getMessage(ctx.run.state.lastMessageId as string).body;
+          if (isStopRequest(lastBody) && !t.opt_out) {
+            t.opt_out = true;
+            await ctx.emit('routing.optout_detected', { by: 'deterministic stop-request check', modelIntent: t.intent });
+          }
           // Deterministic: any human reply pauses follow-ups to this contact; an opt-out suppresses and cancels.
           const human = t.intent !== 'automatic_reply';
           let paused = 0;
@@ -316,7 +323,7 @@ export function replyToNextAction(d: WorkflowDeps): WorkflowDef {
                           ? 'Find the right contact; do not repeat to this address.'
                           : 'Reply (draft waits for Bruno).';
           // A question about pricing is never authority for a discount: escalate commercial terms.
-          const escalate = t.complaint || t.sensitive || t.questions.some((q) => /\b(discount|price|pricing|sconto|prezzo|desconto|precio)\b/i.test(q));
+          const escalate = t.complaint || t.sensitive || t.questions.some((q) => /\b(discount|price|pricing|sconto|prezzo|desconto|descuento|precio|preço|preco|remise|rabais|prix|tarif)/i.test(q));
           await ctx.artifact('next_action', `Next action: ${t.intent}`, { intent: t.intent, next, owner: 'Bruno', escalate, sourceMessage: `message:${ctx.run.state.lastMessageId}` });
           ctx.run.state.summary = `${t.intent}: ${next}`;
           return { status: 'done' };
