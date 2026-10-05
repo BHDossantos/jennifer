@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { DateTime } from 'luxon';
 import { JenniferError } from '../core/types.js';
 import { type Clock, newId } from '../core/util.js';
 import type { AuditLog } from '../audit/audit.js';
@@ -336,6 +337,29 @@ export class CompanyOS {
     const e: RunEvent = { companyId: run.companyId, runId: run.id, seq, type, at: this.d.clock.now().toISOString(), data };
     await this.d.repo.appendEvent(e);
     for (const l of this.listeners.get(`${run.companyId}:${run.id}`) ?? []) l(e);
+  }
+
+  /**
+   * Opt-in schedules (blueprint WF-03): a company whose profile has
+   * briefTime "HH:MM" gets one brief per local day in its own time zone.
+   * The idempotency key makes a retry or second worker produce no duplicate.
+   */
+  async tickSchedules(): Promise<string[]> {
+    await this.bootstrap();
+    const started: string[] = [];
+    const now = this.d.clock.now();
+    for (const c of await this.d.repo.companies()) {
+      const t = c.profile.briefTime;
+      if (c.status !== 'active' || typeof t !== 'string' || !/^\d{2}:\d{2}$/.test(t)) continue;
+      const local = DateTime.fromJSDate(now, { zone: c.timezone });
+      if (local.toFormat('HH:mm') < t) continue;
+      const day = local.toISODate()!;
+      const key = `schedule:WF-03:${day}`;
+      if (await this.d.repo.runByKey(c.id, key)) continue;
+      const run = await this.createRun(this.d.ownerId, c.id, 'WF-03', { date: day }, { idempotencyKey: key });
+      started.push(run.id);
+    }
+    return started;
   }
 
   /** Organization map data: departments, roles and readiness. */

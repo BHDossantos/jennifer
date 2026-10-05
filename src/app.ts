@@ -390,6 +390,56 @@ export function createJennifer(opts: JenniferOptions = {}) {
   company.register(companyDailyBrief(wfDeps));
   company.register(replyToNextAction(wfDeps));
   company.register(prospectToDraft(wfDeps));
+  // WF-02 trigger: a verified inbound message in a company space starts triage when the owner enabled it (profile.autoTriage).
+  const handleBeforeCompany = inbound.handle.bind(inbound);
+  inbound.handle = async (email, o) => {
+    const r = await handleBeforeCompany(email, o);
+    if (!r.duplicate && r.message && !r.skippedReason?.startsWith('automated') && (SPACES as readonly string[]).includes(email.space) && email.space !== 'personal') {
+      const c = (await companyRepo.companies()).find((x) => x.id === email.space);
+      if (c?.status === 'active' && c.profile.autoTriage === true)
+        void company.createRun(ownerId, c.id, 'WF-02', { conversationId: r.message.conversationId }, { idempotencyKey: `inbound:${r.message.id}` }).catch(() => undefined);
+    }
+    return r;
+  };
+  tools.register({
+    name: 'company_overview',
+    description: "Bruno's companies (insurance, technology, music, restaurant, United Youth Orchestra): pending approvals, drafts to review, CRM changes, and recent workflow runs with their status.",
+    input: z.object({ companyId: z.enum(['insurance', 'technology', 'music', 'restaurant', 'nonprofit']).optional() }),
+    requiredScopes: ['company:read'],
+    sideEffect: 'read',
+    timeoutMs: 5000,
+    rateLimitPerMinute: 30,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i) => {
+      const list = (await company.companiesFor(ownerId)).filter((c) => !i.companyId || c.id === i.companyId);
+      return Promise.all(
+        list.map(async (c) => ({
+          company: c.name,
+          id: c.id,
+          status: c.status,
+          draftsToReview: (await companyRepo.artifacts(c.id)).filter((a) => a.review === 'pending' && a.kind === 'email_draft').length,
+          crmChangesToReview: (await companyRepo.patches(c.id, 'proposed')).length,
+          recentRuns: (await companyRepo.runs(c.id, 5)).map((r) => ({ workflow: r.workflowId, status: r.status, summary: r.summary, at: r.createdAt })),
+        })),
+      );
+    },
+  });
+  tools.register({
+    name: 'start_company_workflow',
+    description:
+      'Start a Company OS workflow for one company: WF-03 daily executive brief; WF-01 prospect research to reviewed drafts (input: segment, geography, batchLimit ≤10, language); WF-02 reply triage (input: conversationId). Results wait for Bruno’s review; nothing is sent.',
+    input: z.object({ companyId: z.enum(['insurance', 'technology', 'music', 'restaurant', 'nonprofit']), workflowId: z.enum(['WF-01', 'WF-02', 'WF-03']), input: z.record(z.string(), z.unknown()).default({}) }),
+    requiredScopes: ['company:run'],
+    sideEffect: 'draft',
+    timeoutMs: 120_000,
+    rateLimitPerMinute: 6,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i) => {
+      const r = await company.createRun(ownerId, i.companyId, i.workflowId, i.input);
+      const done = await company.settle(i.companyId, r.id, 110_000).catch(() => undefined);
+      return done ? { runId: r.id, status: done.status, summary: done.summary, blockers: done.blockers } : { runId: r.id, status: 'running', note: 'Still working; results will appear in the Company tab.' };
+    },
+  });
   const retention = new RetentionService({ clock, retention: config.retention, conversations, actions, feedback, phone, audit, ownerId });
   registerCalendarTools(tools, { ownerId, calendar, actions, capabilities, clock, homeTimeZone: config.homeTimeZone });
   tools.register({

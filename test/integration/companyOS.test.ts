@@ -244,3 +244,32 @@ describe('durability', () => {
     await db.close();
   });
 });
+
+describe('triggers', () => {
+  it('the scheduled brief runs once per local day in the company time zone, only when enabled', async () => {
+    const { j, clock } = setup();
+    expect(await j.company.tickSchedules()).toEqual([]); // nothing enabled by default
+    await j.company.updateProfile('bruno', 'music', { briefTime: '08:30' });
+    clock.set(new Date('2026-10-05T06:00:00Z')); // 08:00 Rome (CEST)
+    expect(await j.company.tickSchedules()).toEqual([]);
+    clock.set(new Date('2026-10-05T06:31:00Z')); // 08:31 Rome
+    const [first] = await j.company.tickSchedules();
+    expect(first).toBeDefined();
+    expect(await j.company.tickSchedules()).toEqual([]); // no duplicate the same day
+    clock.set(new Date('2026-10-26T07:31:00Z')); // after DST ends: 08:31 Rome (CET)
+    expect(await j.company.tickSchedules()).toHaveLength(1);
+    await j.company.settle('music', first!);
+  });
+
+  it('auto-triage starts WF-02 for a new message in a company space when enabled, once per message', async () => {
+    const { j } = setup({ D02: () => env({ intent: 'question', source_message_id: 'x', dates: [], questions: ['What does it cover?'], requested_actions: [], opt_out: false, complaint: false, sensitive: false, not_before: '' }) });
+    await j.company.updateProfile('bruno', 'insurance', { autoTriage: true });
+    const email = { accountId: 'bruno@gmail.test', connectorId: 'gmail', providerMessageId: 'pm-1', providerThreadId: 'th-1', from: { address: 'client@firm.test' }, to: ['bruno@gmail.test'], cc: [], subject: 'Cover?', body: 'What does it cover?', headers: {}, occurredAt: new Date(), space: 'insurance' as const };
+    await j.inbound.handle(email, { autoDraft: false });
+    await j.inbound.handle(email, { autoDraft: false }); // duplicate delivery
+    await new Promise((r) => setTimeout(r, 50));
+    const runs = await j.companyRepo.runs('insurance', 10);
+    expect(runs.filter((r) => r.workflowId === 'WF-02')).toHaveLength(1);
+    expect((await j.company.settle('insurance', runs[0]!.id)).status).toBe('succeeded');
+  });
+});
