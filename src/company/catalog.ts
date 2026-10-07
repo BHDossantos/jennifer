@@ -478,7 +478,7 @@ export const ROLE_CATALOG: readonly RoleRecord[] = [
     deliverable: "Content strategy",
     mode: "draft",
     phase: 2,
-    pilot: false,
+    pilot: true,
   },
   {
     id: "M05",
@@ -528,7 +528,7 @@ export const ROLE_CATALOG: readonly RoleRecord[] = [
     deliverable: "Caption variants",
     mode: "draft",
     phase: 2,
-    pilot: false,
+    pilot: true,
   },
   {
     id: "M10",
@@ -608,7 +608,7 @@ export const ROLE_CATALOG: readonly RoleRecord[] = [
     deliverable: "Review report and corrected draft",
     mode: "draft",
     phase: 2,
-    pilot: false,
+    pilot: true,
   },
   {
     id: "M18",

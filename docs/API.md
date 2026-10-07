@@ -256,6 +256,7 @@ Errors are JSON: `{ "error": "<code>", "message": "..." }` — `409` for policy/
 |---|---|---|---|
 | GET | `/v1/companies` | owner |  |
 | PUT | `/v1/companies/:cid/profile` | owner |  |
+| PUT | `/v1/companies/:cid/name` | owner |  |
 | POST | `/v1/companies/:cid/status` | owner | Company-scoped emergency stop: no new runs or side effects; open runs are cancelled. |
 
 ### Organization map and directory

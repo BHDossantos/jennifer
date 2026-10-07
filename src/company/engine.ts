@@ -29,6 +29,7 @@ export const DEFAULT_COMPANIES: Company[] = [
   { id: 'nonprofit', name: 'United Youth Orchestra', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
   { id: 'learnnoelia', name: 'LearnNoelia', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
   { id: 'foundation', name: 'Esposito Dos Santos Foundation', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
+  { id: 'dating', name: 'Dating app', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
 ];
 
 /** Earlier default names, renamed in place once (an owner-chosen name is never overwritten). */
@@ -132,6 +133,16 @@ export class CompanyOS {
     company.profile = { ...company.profile, ...profile };
     await this.d.repo.saveCompany(company, this.d.ownerId);
     this.d.audit.record(actor, 'company.profile_updated', companyId, { keys: Object.keys(profile) });
+    return company;
+  }
+
+  async rename(actor: string, companyId: CompanyId, name: string): Promise<Company> {
+    const { company } = await this.access(actor, companyId, 'admin');
+    const clean = name.replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!clean) throw new JenniferError('company.bad_name', 'Give the company a name');
+    company.name = clean;
+    await this.d.repo.saveCompany(company, this.d.ownerId);
+    this.d.audit.record(actor, 'company.renamed', companyId, { name: clean });
     return company;
   }
 
@@ -356,6 +367,15 @@ export class CompanyOS {
     const started: string[] = [];
     const now = this.d.clock.now();
     for (const c of await this.d.repo.companies()) {
+      if (c.status === 'active' && c.profile.weeklyContent === true) {
+        // Fridays from 09:00 local: plan next week's posts once.
+        const local = DateTime.fromJSDate(now, { zone: c.timezone });
+        if (local.weekday === 5 && local.toFormat('HH:mm') >= '09:00') {
+          const weekOf = local.plus({ weeks: 1 }).startOf('week').toISODate()!;
+          const key = `schedule:WF-04:${weekOf}`;
+          if (!(await this.d.repo.runByKey(c.id, key))) started.push((await this.createRun(this.d.ownerId, c.id, 'WF-04', { weekOf }, { idempotencyKey: key })).id);
+        }
+      }
       const t = c.profile.briefTime;
       if (c.status !== 'active' || typeof t !== 'string' || !/^\d{2}:\d{2}$/.test(t)) continue;
       const local = DateTime.fromJSDate(now, { zone: c.timezone });

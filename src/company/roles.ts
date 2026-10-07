@@ -122,6 +122,27 @@ export const PILOT_ROLES: RoleVersion[] = [
     retrievalScopes: [],
     actionPolicy: 'none',
   },
+  {
+    ...base(role('M04')),
+    promptTemplate: `${COMMON}\nGoal: plan one week of social posts for this company from its approved offer, audience, brand voice and claims. Spread posts across the requested channels and days at sensible local times. Each idea must rest on a cited source. Ad ideas are proposals only: modest budgets, no promised results, no prices or offers that are not in the approved material.`,
+    allowedTools: [],
+    retrievalScopes: ['offer', 'icp', 'brand', 'claims'],
+    actionPolicy: 'draft_only',
+  },
+  {
+    ...base(role('M09')),
+    promptTemplate: `${COMMON}\nGoal: write platform-specific captions in the approved brand voice for the planned posts. Use only prices, offers, dates and claims stated in the approved material; never superlatives ("best", "#1"), guarantees or discounts that are not approved. Respect channel length limits. Do not publish anything.`,
+    allowedTools: [],
+    retrievalScopes: ['offer', 'brand', 'claims'],
+    actionPolicy: 'draft_only',
+  },
+  {
+    ...base(role('M17')),
+    promptTemplate: `${COMMON}\nGoal: check each draft for factual support, prices, claims, links, dates and tone against the approved material. Deterministic checks run first; you only explain borderline cases.`,
+    allowedTools: [],
+    retrievalScopes: ['offer', 'brand', 'claims'],
+    actionPolicy: 'none',
+  },
 ];
 
 export type Readiness = 'ready' | 'needs_setup' | 'paused' | 'design_only';

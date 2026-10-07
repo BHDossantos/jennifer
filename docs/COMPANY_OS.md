@@ -6,7 +6,7 @@ Implementation of *Jennifer Company OS — Product, design and engineering bluep
 
 | Blueprint item | Status | Where |
 |---|---|---|
-| Five company spaces (insurance pilot, technology, music, restaurant, United Youth Orchestra) | Built | `src/company/engine.ts` (`DEFAULT_COMPANIES`) |
+| Company spaces: Thrust Insurance (pilot), B&B Global Services, Music, SavoryMind, United Youth Orchestra, LearnNoelia, Esposito Dos Santos Foundation, Dating app (renameable) | Built | `src/company/engine.ts` (`DEFAULT_COMPANIES`) |
 | F02 Company scope and memberships; generic not-found for other companies | Built (single owner today; membership model ready for team members) | `CompanyOS.access`, `company_membership` |
 | F03 137-role registry as design records; 12 pilot roles with versioned, immutable contracts | Built | `src/company/catalog.ts`, `src/company/roles.ts` |
 | Honest readiness (ready / needs setup / paused / design only) with exact blockers | Built | `roleStatus()` |
@@ -23,13 +23,14 @@ Implementation of *Jennifer Company OS — Product, design and engineering bluep
 | CRM with versioned patches and conflict detection (D09) | Built | `src/company/crm.ts` |
 | Company emergency stop | Built | `POST /v1/companies/:id/status` |
 | E01 Controlled sending | Built through Jennifer's approval queue: an approved draft becomes an exact send proposal that waits for Bruno (first contact is never automatic) | `prepare-send` |
-| E02–E04 Marketing, onboarding, support/intelligence workflows (WF-04, WF-05) | Not built yet | roles stay "design only" |
+| E02 WF-04 Weekly content & social plan (M04 plan, M09 captions, M17 deterministic claim/price/limit check; each post an approval, then Claude schedules it in Metricool; ad ideas are proposals only, no spend; optional Friday auto-plan) | Built | `src/company/marketing.ts` |
+| E03–E04 Onboarding, support/intelligence workflows (WF-05) | Not built yet | roles stay "design only" |
 | A02 Back-office (WF-06 cash scenarios) | Not built yet | — |
 | A05 Multi-customer product | Out of scope | — |
 
 ## Rules the system enforces
 
-- A role is never shown as active because a prompt exists. 125 of 137 roles are design records until they get an executor, tools, sources and tests.
+- A role is never shown as active because a prompt exists. 122 of 137 roles are design records until they get an executor, tools, sources and tests.
 - Company scope comes from the server (stored conversation, connector account, membership), never from text a model or client supplied.
 - Knowledge is used only after the owner approves it; expired or revoked sources disappear from retrieval; roles only see their allowed categories (e.g. a marketing role never sees "participants").
 - External text is labeled untrusted; models cannot pick credentials, recipients' authority or approvals.
@@ -53,6 +54,6 @@ Implementation of *Jennifer Company OS — Product, design and engineering bluep
 
 - PDF/Word ingestion and OCR for the company brain (text and web pages work today).
 - Team members with their own sign-in (the membership model exists; only Bruno can sign in now).
-- WF-04 content pack, WF-05 onboarding, WF-06 cash scenarios and the other phase-2/3 roles.
+- WF-05 onboarding, WF-06 cash scenarios and the other phase-2/3 roles.
 - A dedicated external CRM connector (HubSpot, Pipedrive…): the built-in CRM is the system of record until one is chosen.
 - Postgres row-level security policies (company scoping is enforced in every query and tested; RLS would be defense in depth).

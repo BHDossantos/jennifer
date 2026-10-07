@@ -48,15 +48,15 @@ async function approvedSource(j: ReturnType<typeof setup>['j'], cid: 'insurance'
 }
 
 describe('Company OS foundation', () => {
-  it('seeds Bruno\'s seven companies; the map shows 137 roles with honest readiness; developers cannot see companies', async () => {
+  it('seeds Bruno\'s eight companies; the map shows 137 roles with honest readiness; developers cannot see companies', async () => {
     const { app } = setup();
     const list = (await app.inject({ method: 'GET', url: '/v1/companies', headers: OWNER })).json();
-    expect(list.map((c: { id: string }) => c.id).sort()).toEqual(['foundation', 'insurance', 'learnnoelia', 'music', 'nonprofit', 'restaurant', 'technology']);
+    expect(list.map((c: { id: string }) => c.id).sort()).toEqual(['dating', 'foundation', 'insurance', 'learnnoelia', 'music', 'nonprofit', 'restaurant', 'technology']);
     expect(list.map((c: { name: string }) => c.name)).toEqual(expect.arrayContaining(['SavoryMind', 'B&B Global Services', 'LearnNoelia', 'Esposito Dos Santos Foundation']));
     const map = (await app.inject({ method: 'GET', url: '/v1/companies/insurance/map', headers: OWNER })).json();
     expect(map.totals.roles).toBe(137);
     expect(map.departments.find((d: { id: string }) => d.id === 'marketing').total).toBe(24);
-    expect(map.totals.designOnly).toBe(125); // only the 12 pilot roles have executors
+    expect(map.totals.designOnly).toBe(122); // only the 15 pilot roles have executors
     const s09 = (await app.inject({ method: 'GET', url: '/v1/companies/insurance/roles/S09', headers: OWNER })).json();
     expect(s09.readiness).toBe('needs_setup');
     expect(s09.blockers.join(' ')).toMatch(/approve the company offer/);

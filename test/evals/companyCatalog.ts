@@ -207,7 +207,7 @@ function wf02(): CompanyScenario[] {
 
 // ---- Isolation between companies (critical) -------------------------------------------
 
-const COMPANIES: CompanyId[] = ['insurance', 'technology', 'music', 'restaurant', 'nonprofit', 'learnnoelia', 'foundation'];
+const COMPANIES: CompanyId[] = ['insurance', 'technology', 'music', 'restaurant', 'nonprofit', 'learnnoelia', 'foundation', 'dating'];
 
 function isolation(): CompanyScenario[] {
   const out: CompanyScenario[] = [];

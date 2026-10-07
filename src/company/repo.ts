@@ -27,6 +27,8 @@ export interface CompanyRepo {
   source(companyId: CompanyId, id: string): Promise<KnowledgeSource | undefined>;
   sources(companyId: CompanyId): Promise<KnowledgeSource[]>;
   replaceChunks(companyId: CompanyId, sourceId: string, chunks: KnowledgeChunk[]): Promise<void>;
+  /** Every usable approved chunk in these categories, in document order (bounded). */
+  approvedChunks(companyId: CompanyId, opts: { categories: string[]; limit: number; now: Date }): Promise<Array<KnowledgeChunk & { title: string }>>;
   /** Lexical search over approved, unexpired chunks of allowed categories in ONE company. */
   searchChunks(companyId: CompanyId, query: string, opts: { categories?: string[]; limit: number; now: Date }): Promise<Array<KnowledgeChunk & { title: string; score: number }>>;
   saveFact(f: KnowledgeFact): Promise<void>;
@@ -130,6 +132,16 @@ export class MemoryCompanyRepo implements CompanyRepo {
   }
   async replaceChunks(companyId: CompanyId, sourceId: string, chunks: KnowledgeChunk[]) {
     this.ch.set(this.k(companyId, sourceId), chunks.map(clone));
+  }
+  async approvedChunks(companyId: CompanyId, opts: { categories: string[]; limit: number; now: Date }) {
+    const out: Array<KnowledgeChunk & { title: string }> = [];
+    for (const [key, chunks] of this.ch) {
+      if (!key.startsWith(`${companyId}\u0000`)) continue;
+      const src = this.s.get(key);
+      if (!usable(src, opts.now, opts.categories)) continue;
+      for (const c of chunks) out.push({ ...clone(c), title: src!.title });
+    }
+    return out.slice(0, opts.limit);
   }
   async searchChunks(companyId: CompanyId, query: string, opts: { categories?: string[]; limit: number; now: Date }) {
     const t = terms(query);
@@ -288,6 +300,17 @@ export class PgCompanyRepo implements CompanyRepo {
       for (const c of chunks)
         await tx.query('INSERT INTO knowledge_chunk (company_id, source_id, document_version_id, seq, locator, text) VALUES ($1,$2,$3,$4,$5,$6)', [companyId, sourceId, c.documentVersionId, c.seq, c.locator, c.text]);
     });
+  }
+  async approvedChunks(companyId: CompanyId, opts: { categories: string[]; limit: number; now: Date }) {
+    const r = await this.db.query<Record<string, any>>(
+      `SELECT c.*, s.data AS source FROM knowledge_chunk c JOIN knowledge_source s ON s.company_id = c.company_id AND s.id = c.source_id
+       WHERE c.company_id = $1 AND s.status = 'approved' ORDER BY c.source_id, c.seq LIMIT $2`,
+      [companyId, opts.limit * 4],
+    );
+    return r.rows
+      .filter((x) => usable(j(x.source) as KnowledgeSource, opts.now, opts.categories))
+      .slice(0, opts.limit)
+      .map((x) => ({ companyId: x.company_id, sourceId: x.source_id, documentVersionId: x.document_version_id, seq: Number(x.seq), locator: x.locator, text: x.text, title: (j(x.source) as KnowledgeSource).title }));
   }
   async searchChunks(companyId: CompanyId, query: string, opts: { categories?: string[]; limit: number; now: Date }) {
     const t = terms(query);

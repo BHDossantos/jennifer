@@ -27,7 +27,7 @@ const arr = (items: Record<string, unknown>) => ({ type: 'array', items: { type:
 const str = { type: 'string' };
 
 /** Run one role step: budget, executor, accounting, blockers → StepResult. */
-async function runRole<T>(ctx: StepContext, roleId: string, task: string, evidence: Evidence[], schema: Record<string, unknown>, parse: (x: unknown) => T): Promise<{ ok: true; data: T; out: Awaited<ReturnType<StepContext['executor']['execute']>> } | { ok: false; result: StepResult }> {
+export async function runRole<T>(ctx: StepContext, roleId: string, task: string, evidence: Evidence[], schema: Record<string, unknown>, parse: (x: unknown) => T): Promise<{ ok: true; data: T; out: Awaited<ReturnType<StepContext['executor']['execute']>> } | { ok: false; result: StepResult }> {
   const role = roleVersion(roleId)!;
   const companyContext = `${ctx.company.name} (company "${ctx.company.id}", timezone ${ctx.company.timezone}). Approved profile: ${JSON.stringify(ctx.company.profile).slice(0, 2000)}`;
   const out = await ctx.executor.execute({ role, companyId: ctx.company.id as CompanyId, companyContext, task, evidence, dataSchema: { schema, parse }, budget: { remainingEur: ctx.remainingBudget() } });

@@ -92,6 +92,11 @@ export class CompanyBrain {
   }
 
   /** Only approved, unexpired sources of the allowed categories in this one company. */
+  /** All approved material in these categories (for work that must respect the whole offer or brand, not just matching snippets). */
+  approved(companyId: CompanyId, categories: string[], limit = 12) {
+    return this.d.repo.approvedChunks(companyId, { categories, limit, now: this.d.clock.now() });
+  }
+
   search(companyId: CompanyId, query: string, opts: { categories?: string[]; limit?: number } = {}) {
     return this.d.repo.searchChunks(companyId, query, { categories: opts.categories, limit: opts.limit ?? 6, now: this.d.clock.now() });
   }

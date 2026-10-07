@@ -40,6 +40,10 @@ export function registerCompanyRoutes(app: FastifyInstance, j: Jennifer, owner: 
     const b = z.record(z.string().max(60), z.unknown()).parse(req.body);
     return j.company.updateProfile(actor(req), cid, b);
   });
+  app.put('/v1/companies/:cid/name', owner, async (req) => {
+    const cid = await cidOf(req, 'admin');
+    return j.company.rename(actor(req), cid, z.object({ name: z.string().min(1).max(80) }).parse(req.body).name);
+  });
   /** Company-scoped emergency stop: no new runs or side effects; open runs are cancelled. */
   app.post('/v1/companies/:cid/status', owner, async (req) => {
     const cid = await cidOf(req, 'admin');

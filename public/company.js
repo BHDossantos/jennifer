@@ -90,6 +90,7 @@
       const convs = (await api('/v1/conversations?space=' + st.cid).catch(() => [])).slice(0, 30);
       const form = (w) => {
         if (w.id === 'WF-01') return `<label>Segment <input data-in="segment" placeholder="e.g. independent insurance brokers"></label><label>Geography <input data-in="geography" placeholder="e.g. Milan"></label><label>Batch size (max 10) <input data-in="batchLimit" type="number" min="1" max="10" value="5"></label><label>Language <select data-in="language"><option>en</option><option>pt</option><option>es</option><option>fr</option><option>it</option></select></label>`;
+        if (w.id === 'WF-04') return `<fieldset><legend>Channels</legend>${['instagram', 'facebook', 'linkedin', 'tiktok', 'x'].map((c) => `<label><input type="checkbox" data-ch="${c}" ${c === 'instagram' || c === 'facebook' ? 'checked' : ''}> ${c === 'x' ? 'X' : c[0].toUpperCase() + c.slice(1)}</label>`).join('')}</fieldset><label>Posts this week (max 10) <input data-in="postsPerWeek" type="number" min="1" max="10" value="4"></label><label>Language <select data-in="language"><option>en</option><option>pt</option><option>es</option><option>fr</option><option>it</option></select></label>`;
         if (w.id === 'WF-02') return convs.length ? `<label>Conversation <select data-in="conversationId">${convs.map((c) => `<option value="${c.id}">${esc(c.subject || '(no subject)')} — ${esc((c.lastFrom && c.lastFrom.address) || '')}</option>`).join('')}</select></label>` : '<p class="muted">No conversations in this company yet.</p>';
         return '';
       };
@@ -133,10 +134,12 @@
         ['account', 'contact', 'opportunity', 'task'].map((k) => `<h3>${k[0].toUpperCase() + k.slice(1)}s</h3>` + (group(k).map(show).join('') || '<p class="muted">None yet.</p>')).join('');
     },
     async settings(company) {
-      return `<div class="card"><strong>Automation for ${esc(company.name)}</strong>
+      return `<div class="card"><strong>Name</strong><label>Company name <input data-cos-name value="${esc(company.name)}" maxlength="80"></label><div class="row"><button class="btn" data-cos-rename="1">Rename</button></div></div>
+        <div class="card"><strong>Automation for ${esc(company.name)}</strong>
         <label>Daily brief at (local time, ${esc(company.timezone)}) <input data-cos-brief type="time" value="${esc(company.profile.briefTime || '')}"></label>
         <p class="muted">Leave empty to run the brief only when you ask.</p>
         <label><input type="checkbox" data-cos-triage ${company.profile.autoTriage ? 'checked' : ''}> Triage new replies in this company automatically (classify, honor opt-outs, propose CRM updates; nothing is sent)</label>
+        <label><input type="checkbox" data-cos-weekly ${company.profile.weeklyContent ? 'checked' : ''}> Plan next week's social posts every Friday morning (each post still waits for your OK)</label>
         <div class="row"><button class="btn primary" data-cos-saveset="1">Save</button></div></div>
         <div class="card"><strong>Emergency stop for this company</strong><p class="muted">Pausing cancels running work and blocks new runs. Messages already sent cannot be unsent.</p>
         <div class="row">${company.status === 'paused' ? '<button class="btn primary" data-cos-status="active">Resume company</button>' : '<button class="btn danger" data-cos-status="paused">Pause company</button>'}</div></div>`;
@@ -193,6 +196,8 @@
         const card = t.closest('[data-wf]');
         const input = {};
         card.querySelectorAll('[data-in]').forEach((el) => { if (el.dataset.in !== 'budget' && el.value) input[el.dataset.in] = el.type === 'number' ? Number(el.value) : el.value; });
+        const chans = [...card.querySelectorAll('[data-ch]')].filter((el) => el.checked).map((el) => el.dataset.ch);
+        if (card.querySelector('[data-ch]')) input.channels = chans.length ? chans : ['instagram'];
         const budget = Number(card.querySelector('[data-in="budget"]').value) || undefined;
         const r = await api(base() + '/runs', { method: 'POST', headers: { 'idempotency-key': uuid() }, body: JSON.stringify({ workflowId: d.cosStart, input, budgetEur: budget }) });
         st.run = r.id; st.sub = 'history'; return show('company');
@@ -216,7 +221,8 @@
         return show('company');
       }
       if (d.cosAddtask) { await api(base() + '/crm/records', { method: 'POST', body: JSON.stringify({ kind: 'task', fields: { title: val('[data-task="title"]'), due: val('[data-task="due"]') || undefined, status: 'open', owner: 'Bruno' } }) }); return show('company'); }
-      if (d.cosSaveset) { await api(base() + '/profile', { method: 'PUT', body: JSON.stringify({ briefTime: val('[data-cos-brief]') || null, autoTriage: document.querySelector('[data-cos-triage]').checked }) }); say('Saved.'); return show('company'); }
+      if (d.cosRename) { await api(base() + '/name', { method: 'PUT', body: JSON.stringify({ name: val('[data-cos-name]') }) }); say('Renamed.'); return show('company'); }
+      if (d.cosSaveset) { await api(base() + '/profile', { method: 'PUT', body: JSON.stringify({ briefTime: val('[data-cos-brief]') || null, autoTriage: document.querySelector('[data-cos-triage]').checked, weeklyContent: document.querySelector('[data-cos-weekly]').checked }) }); say('Saved.'); return show('company'); }
       if (d.cosStatus) { if (d.cosStatus === 'paused' && !confirm('Pause all work for this company?')) return; await api(base() + '/status', { method: 'POST', body: JSON.stringify({ status: d.cosStatus }) }); return show('company'); }
     } catch (err) { say('Company: ' + err.message); }
   });
