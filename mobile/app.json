@@ -1,1 +1,37 @@
-{"expo":{"name":"Jennifer","slug":"jennifer","scheme":"jennifer","version":"0.1.0","orientation":"portrait","userInterfaceStyle":"automatic","ios":{"supportsTablet":true,"bundleIdentifier":"com.bnbglobal.jennifer"},"android":{"package":"com.bnbglobal.jennifer"},"plugins":["expo-router","expo-secure-store"],"experiments":{"typedRoutes":true}}}
+{
+  "expo": {
+    "name": "Jennifer",
+    "slug": "jennifer",
+    "scheme": "jennifer",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.bnbglobal.jennifer",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Jennifer uses the microphone only when you start a voice conversation."
+      }
+    },
+    "android": {
+      "package": "com.bnbglobal.jennifer",
+      "permissions": [
+        "RECORD_AUDIO",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "jennifer"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
