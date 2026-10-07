@@ -1,0 +1,2 @@
+import {Tabs} from 'expo-router';
+export default function TabsLayout(){return <Tabs screenOptions={{headerStyle:{backgroundColor:'#080b10'},headerTintColor:'#fff',tabBarStyle:{backgroundColor:'#0d1118',borderTopColor:'#202733'},tabBarActiveTintColor:'#d9e7fa'}}><Tabs.Screen name="index" options={{title:'Jennifer'}}/><Tabs.Screen name="today" options={{title:'Today'}}/><Tabs.Screen name="actions" options={{title:'Actions'}}/><Tabs.Screen name="conversations" options={{title:'Inbox'}}/><Tabs.Screen name="missions" options={{title:'Missions'}}/></Tabs>}
