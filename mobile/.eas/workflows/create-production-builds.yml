@@ -1,0 +1,15 @@
+name: Create Jennifer Production Builds
+
+jobs:
+  build_android:
+    name: Build Jennifer Android
+    type: build
+    params:
+      platform: android
+      profile: production
+  build_ios:
+    name: Build Jennifer iOS
+    type: build
+    params:
+      platform: ios
+      profile: production
