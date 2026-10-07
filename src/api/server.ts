@@ -344,8 +344,8 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
 
   // ---- Voice -----------------------------------------------------------------
-  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'search_ai_history', 'web_search', 'ask_ai', 'company_overview', 'start_company_workflow', 'ask_claude_to_do', 'workforce_overview', 'workforce_search_crm', 'workforce_pending'];
-  const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read', 'web:read', 'company:read', 'company:run', 'delegate:propose', 'workforce:read']) };
+  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'search_ai_history', 'web_search', 'ask_ai', 'company_overview', 'start_company_workflow', 'ask_claude_to_do', 'workforce_overview', 'workforce_search_crm', 'workforce_pending', 'message_someone', 'confirm_send', 'save_contact', 'stop_handling', 'get_debrief'];
+  const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read', 'web:read', 'company:read', 'company:run', 'delegate:propose', 'workforce:read', 'messages:start', 'debrief:read']) };
   type StoredVoice = VoiceSettings & { mode: 'private' | 'business' };
   const voiceSettings = async (): Promise<StoredVoice> => {
     const stored = { ...DEFAULT_VOICE, voiceId: 'marin', mode: 'private' as const, ...(await j.settings.get<StoredVoice>('voice')) };
@@ -452,11 +452,19 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   /** Tool calls from a live voice session run here, through the same registry and policy as everything else. */
   app.post('/v1/voice/tools/:name', owner, async (req) => {
     const { name } = z.object({ name: z.string() }).parse(req.params);
-    const b = z.object({ arguments: z.union([z.string(), z.record(z.string(), z.unknown())]).default({}) }).parse(req.body ?? {});
+    const b = z
+      .object({
+        arguments: z.union([z.string(), z.record(z.string(), z.unknown())]).default({}),
+        /** Bruno's last utterance as transcribed by the speech provider (not the model), and how long ago he said it. */
+        heard: z.string().max(1000).optional(),
+        heardAgoMs: z.number().int().min(0).max(3_600_000).optional(),
+      })
+      .parse(req.body ?? {});
     const args = typeof b.arguments === 'string' ? JSON.parse(b.arguments || '{}') : b.arguments;
     try {
+      const ctx = b.heard ? { ...voiceCtx, ownerWords: b.heard, ownerWordsAt: new Date(j.clock.now().getTime() - (b.heardAgoMs ?? 0)) } : voiceCtx;
       // The realtime model receives this verbatim: label third-party content as untrusted.
-      const out = JSON.stringify(await j.tools.invoke(name, args, voiceCtx));
+      const out = JSON.stringify(await j.tools.invoke(name, args, ctx));
       return { ok: true, result: renderUntrusted(wrapUntrusted(`tool:${name}`, out), newId('n').slice(2, 10)) };
     } catch (e) {
       return { ok: false, error: e instanceof JenniferError ? e.message : 'Tool failed' };
@@ -891,6 +899,14 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     if (!duplicate) setImmediate(() => void j.inbound.process(event, email, { autoDraft: true }).catch((e) => app.log.error(redactSecrets(String(e)))));
     return reply.code(202).send({ eventId: event.eventId, duplicate });
   });
+
+  // ---- Debrief and handed-over conversations ---------------------------------------
+  app.get('/v1/debrief', owner, async (req) => {
+    const q = z.object({ hours: z.coerce.number().int().min(1).max(168).optional() }).parse(req.query);
+    return j.tools.invoke('get_debrief', { hours: q.hours }, { ownerId: j.ownerId, role: 'app', allowedTools: new Set(['get_debrief']), scopes: new Set(['debrief:read']) });
+  });
+  app.get('/v1/handoffs', owner, async () => j.handoffs.list());
+  app.post('/v1/handoffs/:id/stop', owner, async (req) => j.handoffs.stop(z.object({ id: z.string() }).parse(req.params).id, 'Bruno said stop'));
 
   // ---- Bruno AI Workforce (read-only) -------------------------------------------
   app.get('/v1/connectors/workforce', owner, async () => {

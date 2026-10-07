@@ -125,9 +125,17 @@ const views = {
     const ob = await api('/v1/onboarding').catch(() => ({ remaining: 0, steps: [] }));
     const setup = ob.remaining ? \`<div class="card"><strong>Get started</strong> <span class="muted">· \${ob.remaining} step\${ob.remaining > 1 ? 's' : ''} left</span>
       \${ob.steps.map((s) => \`<div class="\${s.done ? 'good' : s.optional ? 'muted' : ''}">\${s.done ? '✓' : '○'} \${s.tab && !s.done ? \`<a href="#" data-tab="\${s.tab}">\${esc(s.title)}</a>\` : esc(s.title)}</div>\`).join('')}</div>\` : '';
+    const db = await api('/v1/debrief').catch(() => null);
+    const debrief = db && (db.sent.length || db.handled.length || db.needsYou.length || db.problems.length) ? \`<div class="card"><strong>What I did today</strong>
+      <div class="muted">\${db.sent.length} sent · \${Object.values(db.received).reduce((a, b) => a + b, 0)} received · \${db.needsYou.length} waiting for you\${db.problems.length ? ' · ' + db.problems.length + ' problem(s)' : ''}</div>
+      \${db.handled.map((h) => \`<details><summary>\${esc(h.with)} · \${esc(h.channel)} · \${esc(h.status)}\${h.goal ? ' · ' + esc(h.goal) : ''} (\${h.repliesSent} replies)</summary>
+        \${h.exchange.map((m) => '<div><b>' + esc(m.who) + ':</b> ' + esc(m.text) + '</div>').join('')}
+        \${h.status === 'active' ? '<button class="btn" data-stophandoff="' + esc(h.with) + '">Stop, I\\u2019ll take it</button>' : ''}</details>\`).join('')}
+      \${db.sent.length ? '<details><summary>Everything I sent</summary>' + db.sent.map((m) => '<div class="muted">' + esc(m.channel) + ' to ' + esc(m.to.join(', ')) + ' · ' + esc(m.authorizedBy) + '</div><div>' + esc(m.text) + '</div>').join('') + '</details>' : ''}
+      \${db.problems.map((p) => '<div class="bad">' + esc(p.what) + ' to ' + esc(p.to.join(', ')) + ': ' + esc(p.error) + '</div>').join('')}</div>\` : '';
     const todayCal = (t.brief.today || []).length ? '<div class="card"><strong>Today</strong>' + t.brief.today.map((e) => '<div>' + esc(e.time) + ' · ' + esc(e.title) + '</div>').join('') + '</div>' : '';
     const b = t.brief;
-    return setup + todayCal + \`<div class="card"><strong>Connector health</strong>\${b.connectorHealth.map(c => \`<div class="\${c.state === 'ok' ? 'good' : 'bad'}">\${esc(c.connector)}: \${esc(c.detail)}</div>\`).join('') || '<div class="muted">No accounts connected yet.</div>'}</div>
+    return setup + debrief + todayCal + \`<div class="card"><strong>Connector health</strong>\${b.connectorHealth.map(c => \`<div class="\${c.state === 'ok' ? 'good' : 'bad'}">\${esc(c.connector)}: \${esc(c.detail)}</div>\`).join('') || '<div class="muted">No accounts connected yet.</div>'}</div>
       <h2>Needs your decision</h2>\${t.awaitingDecision.map(card).join('') || '<p class="muted">Nothing waiting.</p>'}
       <h2>Completed</h2>\${b.completed.map(c => '<div class="card">' + esc(c.summary) + '</div>').join('') || '<p class="muted">Nothing completed in the last 24 hours.</p>'}
       <h2>Blocked</h2>\${b.failures.map(f => '<div class="card bad">' + esc(f.summary) + '<div class="muted">' + esc(f.recovery) + '</div></div>').join('') || '<p class="muted">No failures.</p>'}\`;
@@ -319,6 +327,7 @@ document.addEventListener('click', async (e) => {
   if (t.dataset.cancel) { const w = document.querySelector('[data-why="' + t.dataset.cancel + '"]'); await api('/v1/actions/' + t.dataset.cancel + '/cancel', { method: 'POST', body: JSON.stringify({ reason: w ? w.value : 'rejected' }) }); return show(current); }
   if (t.dataset.edit) { const el = $('#edit-' + t.dataset.edit); el.hidden = !el.hidden; return; }
   if (t.dataset.wfdnc) { try { const r = await api('/v1/connectors/workforce/sync-dnc', { method: 'POST', body: '{}' }); $('#status').textContent = 'Do-not-contact: ' + r.added + ' new of ' + r.total + '.'; } catch (err) { $('#status').textContent = 'Workforce: ' + err.message; } return; }
+  if (t.dataset.stophandoff) { const hs = await api('/v1/handoffs'); for (const h of hs.filter((x) => x.contactName === t.dataset.stophandoff && x.status === 'active')) await api('/v1/handoffs/' + h.id + '/stop', { method: 'POST', body: '{}' }); return show('today'); }
   if (t.dataset.copyprompt) { try { await navigator.clipboard.writeText($('#rprompt').value); $('#status').textContent = 'Copied. Paste it into your Claude routine.'; } catch { $('#rprompt').select(); } return; }
   if (t.dataset.saveedit) {
     const id = t.dataset.saveedit; const a = await api('/v1/actions/' + id);
@@ -494,7 +503,7 @@ document.addEventListener('change', async (e) => {
   $('#mres').innerHTML = list.map(r => \`<div class="card">\${esc(r.entry.value)}<div class="muted">\${esc(r.freshness)} · source \${esc(r.sourceRef)}</div><div class="row"><button class="btn" data-memfix="\${r.entry.id}">Correct</button><button class="btn" data-memact="\${r.entry.id}|delete">Forget</button></div></div>\`).join('') || '<p class="muted">No matching memory.</p>';
 });
 // ---- Live voice: WebRTC straight to the realtime model with an ephemeral key; tools run on our server.
-let rtc = null;
+let rtc = null; let heard = null;
 let chatSession = null;
 let chatLog = [];
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'chatin') { e.preventDefault(); document.querySelector('[data-chat=send]').click(); } });
@@ -512,6 +521,7 @@ async function startVoice() {
   dc.onopen = () => dc.send(JSON.stringify({ type: 'response.create' }));
   dc.onmessage = async (m) => {
     const ev = JSON.parse(m.data);
+    if (ev.type === 'conversation.item.input_audio_transcription.completed') { heard = { text: ev.transcript || '', at: Date.now() }; }
     if (ev.type === 'input_audio_buffer.speech_started') setVoice('listening');
     else if (ev.type === 'response.created') setVoice('thinking');
     else if (ev.type === 'output_audio_buffer.started') setVoice('speaking');
@@ -519,7 +529,10 @@ async function startVoice() {
     else if (ev.type === 'error') $('#status').textContent = 'Voice: ' + (ev.error && ev.error.message);
     else if (ev.type === 'response.output_item.done' && ev.item && ev.item.type === 'function_call') {
       setVoice('acting');
-      const r = await api('/v1/voice/tools/' + encodeURIComponent(ev.item.name), { method: 'POST', body: JSON.stringify({ arguments: ev.item.arguments }) }).catch((err) => ({ ok: false, error: err.message }));
+      // Bruno's own last words (transcribed by the speech service) go with the call, so a "yes" is checked against what he said.
+      const said = heard ? { heard: heard.text, heardAgoMs: Date.now() - heard.at } : {};
+      if (ev.item.name === 'confirm_send') heard = null;
+      const r = await api('/v1/voice/tools/' + encodeURIComponent(ev.item.name), { method: 'POST', body: JSON.stringify({ arguments: ev.item.arguments, ...said }) }).catch((err) => ({ ok: false, error: err.message }));
       dc.send(JSON.stringify({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: ev.item.call_id, output: JSON.stringify(r) } }));
       dc.send(JSON.stringify({ type: 'response.create' }));
     }

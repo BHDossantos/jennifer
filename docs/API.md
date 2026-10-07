@@ -227,6 +227,14 @@ Errors are JSON: `{ "error": "<code>", "message": "..." }` — `409` for policy/
 | POST | `/v1/webhooks/imessage` | provider signature |  |
 | POST | `/v1/webhooks/email/:connectorId` | provider signature |  |
 
+### Debrief and handed-over conversations
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/v1/debrief` | owner |  |
+| GET | `/v1/handoffs` | owner |  |
+| POST | `/v1/handoffs/:id/stop` | owner |  |
+
 ### Bruno AI Workforce (read-only)
 
 | Method | Path | Auth | Notes |

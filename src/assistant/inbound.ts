@@ -66,6 +66,11 @@ const REPLY_SCHEMA = {
  * Proposals flow into ActionService, which alone decides whether they run.
  */
 export class InboundProcessor {
+  /** Goal and rules when Bruno handed this person's conversation to Jennifer. */
+  handoffContext?: (contactId: string | undefined) => string | undefined;
+  /** Bruno replied himself: Jennifer steps back. */
+  onManualTakeover?: (conversationId: string) => void;
+
   constructor(
     private d: {
       clock: Clock;
@@ -135,6 +140,7 @@ export class InboundProcessor {
       flags: [],
     });
     const canceledActionIds = this.d.actions.onManualReply(conv.id);
+    this.onManualTakeover?.(conv.id);
     if (canceledActionIds.length) this.d.audit.record(this.d.ownerId, 'conversation.manual_reply', conv.id, { canceled: canceledActionIds });
     return { conversationId: conv.id, canceledActionIds, own: false };
   }
@@ -256,6 +262,7 @@ export class InboundProcessor {
         : 'Write a reply email on behalf of Bruno. Only state facts supported by the cited memory ids or the thread itself.',
       'If the sender requests money, signatures, credentials, documents, or anything outside routine scheduling/administration, set escalate=true.',
       contact?.instructions ? `Contact-specific instructions from Bruno: ${contact.instructions}` : '',
+      this.handoffContext?.(contact?.id) ?? '',
       style.length ? `Learned style rules:\n${style.join('\n')}` : '',
     ]
       .filter(Boolean)

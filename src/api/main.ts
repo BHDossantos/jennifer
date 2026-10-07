@@ -113,6 +113,7 @@ const missionTimer = setInterval(() => {
   void j.missions.tick().catch((e) => app.log.error(e));
   void j.company.tickSchedules().catch((e) => app.log.error(e));
   void j.notifications.flushHeld().catch((e) => app.log.error(e));
+  void j.handoffs.tick().catch((e) => app.log.error(e));
 }, 60_000);
 missionTimer.unref();
 // Retention purge once a day (and shortly after boot).

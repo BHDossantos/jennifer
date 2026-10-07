@@ -39,6 +39,16 @@ export interface Message {
   flags: string[];
 }
 
+/**
+ * One key per real-world thread: an iMessage chat is the same whether the
+ * Mac reports it as iMessage, SMS or "any", and a WhatsApp number with or
+ * without "+". This lets a conversation Jennifer starts and the replies to it
+ * land in one thread.
+ */
+export function threadKey(t: string): string {
+  return t.replace(/^imessage:(imessage|sms|rcs|any);-;/i, 'imessage:any;-;').replace(/^whatsapp:\+/, 'whatsapp:').replace(/^sms:\+?/, 'sms:+');
+}
+
 export interface Conversation {
   id: string;
   ownerId: string;
@@ -102,14 +112,14 @@ export class ConversationStore {
   }
 
   findByThread(accountId: string, providerThreadId: string): Conversation | undefined {
-    return [...this.conversations.values()].find((c) => c.accountId === accountId && c.providerThreadId === providerThreadId);
+    const k = threadKey(providerThreadId);
+    return [...this.conversations.values()].find((c) => c.accountId === accountId && !!c.providerThreadId && threadKey(c.providerThreadId) === k);
   }
 
   upsertConversation(input: Omit<Conversation, 'id' | 'messageIds' | 'revision'> & { id?: string }): Conversation {
     if (input.providerThreadId) {
-      const existing = [...this.conversations.values()].find(
-        (c) => c.accountId === input.accountId && c.providerThreadId === input.providerThreadId,
-      );
+      const k = threadKey(input.providerThreadId);
+      const existing = [...this.conversations.values()].find((c) => c.accountId === input.accountId && !!c.providerThreadId && threadKey(c.providerThreadId) === k);
       if (existing) return existing;
     }
     const c: Conversation = { ...input, id: input.id ?? newId('conv'), messageIds: [], revision: 0 };

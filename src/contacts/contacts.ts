@@ -85,6 +85,17 @@ export class ContactDirectory {
     return this.add({ ownerId, displayName: displayName || v, spaces: [space], identities: [{ kind, value: v, verified: true, source: 'bruno-approved' }], relationship: 'unknown' });
   }
 
+  /** Bruno-supplied changes (name, relationship note, an extra identity). */
+  update(id: string, patch: { displayName?: string; instructions?: string; relationship?: Contact['relationship']; addIdentity?: ContactIdentity }): Contact {
+    const c = this.get(id);
+    if (patch.displayName) c.displayName = patch.displayName;
+    if (patch.instructions !== undefined) c.instructions = patch.instructions;
+    if (patch.relationship) c.relationship = patch.relationship;
+    if (patch.addIdentity && !c.identities.some((i) => i.kind === patch.addIdentity!.kind && i.value === patch.addIdentity!.value)) c.identities.push(patch.addIdentity);
+    this.listeners.forEach((l) => l(c));
+    return c;
+  }
+
   findByIdentity(ownerId: string, kind: IdentityKind, value: string): Contact | undefined {
     const v = normalizeIdentity(kind, value);
     return this.list(ownerId).find((c) => c.identities.some((i) => i.kind === kind && i.value === v));

@@ -74,6 +74,8 @@ export class RealtimeVoiceService {
       'You are speaking aloud: keep answers short and natural, no lists or markdown.',
       'Use tools for facts about Bruno’s day, inbox and decisions. Proposing a message never sends it: say it is waiting for his approval.',
       'If a tool is slow, say a brief "one moment" and do not pretend the work is done.',
+      'When Bruno asks you to text or message someone, call message_someone, read the readback aloud word for word, then wait. Only after he clearly says yes, call confirm_send. If he hesitates or changes anything, propose again.',
+      'When he asks what you did, call get_debrief and summarise briefly: what you sent, conversations you handled, what needs him.',
       `Open with: "${GREETINGS[opts.mode][opts.language]}"`,
     ].join('\n');
     const body = {
@@ -83,7 +85,7 @@ export class RealtimeVoiceService {
         model: this.cfg.model,
         instructions,
         audio: {
-          input: { turn_detection: { type: 'server_vad', interrupt_response: true, create_response: true } },
+          input: { turn_detection: { type: 'server_vad', interrupt_response: true, create_response: true }, transcription: { model: 'gpt-4o-mini-transcribe' } },
           output: { voice, speed: Math.min(1.25, Math.max(0.75, opts.settings.speakingRate)) },
         },
         tools: opts.tools.map((t) => ({ type: 'function', name: t.name, description: t.description, parameters: t.parameters })),

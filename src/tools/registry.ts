@@ -14,6 +14,10 @@ export interface ToolContext {
   role: string; // specialist role or 'jennifer'
   allowedTools: ReadonlySet<string>;
   scopes: ReadonlySet<string>;
+  /** Bruno's own latest words in this conversation (typed text, or his speech transcribed by the provider), never model output. */
+  ownerWords?: string;
+  /** When Bruno's latest words arrived; anything proposed after this cannot be what he is answering. */
+  ownerWordsAt?: Date;
 }
 
 export interface ToolDefinition<I extends z.ZodTypeAny = z.ZodTypeAny, O = unknown> {

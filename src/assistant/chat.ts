@@ -13,7 +13,7 @@ import { personaInstructions, DEFAULT_VOICE, type DeliveryMode } from '../voice/
  * Bruno states are remembered only when the memory quotes his own words;
  * anything else (e.g. inspired by an email) waits for review.
  */
-const CHAT_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'get_calendar', 'find_free_slots', 'propose_event', 'search_ai_history', 'read_ai_conversation', 'web_search', 'read_web_page', 'ask_ai', 'company_overview', 'start_company_workflow', 'ask_claude_to_do', 'workforce_overview', 'workforce_search_crm', 'workforce_pending'];
+const CHAT_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'get_calendar', 'find_free_slots', 'propose_event', 'search_ai_history', 'read_ai_conversation', 'web_search', 'read_web_page', 'ask_ai', 'company_overview', 'start_company_workflow', 'ask_claude_to_do', 'workforce_overview', 'workforce_search_crm', 'workforce_pending', 'message_someone', 'confirm_send', 'save_contact', 'stop_handling', 'get_debrief'];
 const MAX_HISTORY = 40;
 
 interface ChatSession {
@@ -37,7 +37,7 @@ export class ChatService {
     const remembered: string[] = [];
     const pendingReview: string[] = [];
 
-    const ctx: ToolContext = { ownerId: this.d.ownerId, role: 'chat', allowedTools: new Set(CHAT_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read', 'web:read', 'company:read', 'company:run', 'delegate:propose', 'workforce:read']) };
+    const ctx: ToolContext = { ownerId: this.d.ownerId, role: 'chat', allowedTools: new Set(CHAT_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read', 'web:read', 'company:read', 'company:run', 'delegate:propose', 'workforce:read', 'messages:start', 'debrief:read']), ownerWords: input.message, ownerWordsAt: this.d.clock.now() };
     const specs: ToolSpec[] = this.d.tools.forRole(ctx).map((t) => {
       const { $schema: _s, ...parameters } = t.schema as Record<string, unknown>;
       return { name: t.name, description: t.description, parameters };
@@ -64,6 +64,8 @@ export class ChatService {
         'For anything Bruno discussed with ChatGPT or Claude, use search_ai_history; you only see what he exported or shared, so say so when it is not there.',
         'Use tools for facts about his day, inbox, missions and memory. Proposing or drafting a message never sends it: say it is waiting for his approval.',
         'When Bruno tells you something worth keeping (a preference, an instruction, a fact), call remember with his exact words as the quote.',
+        'When Bruno asks you to text, message or email someone, call message_someone, read the readback to him exactly, and only after his clear yes call confirm_send. If he tells you who someone is (name + number/email), call save_contact.',
+        'When he asks what you did or for a debrief, call get_debrief and summarise: what you sent and to whom, conversations you handled, and what needs him.',
       ].join('\n'),
       task: input.message,
       prior: s.history,

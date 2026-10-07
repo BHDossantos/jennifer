@@ -38,6 +38,8 @@ import { ChainedVoice } from './voice/chained.js';
 import { ElevenLabsTTS } from './voice/elevenlabs.js';
 import { ClaudeRoutineDelegate, DelegateTaskHandler } from './delegate/claudeRoutine.js';
 import { WorkforceClient } from './connectors/workforce.js';
+import { HandoffService } from './assistant/handoff.js';
+import { buildDebrief } from './assistant/debrief.js';
 import { CostLedger, DEFAULT_PRICING, MeteredModel, MeteredToolModel, type Pricing } from './ops/costs.js';
 import { FeedbackStore, ModelRegistry, type FeedbackKind } from './learning/feedback.js';
 import type { ControlsSnapshot, SuppressionRule } from './policy/controls.js';
@@ -203,9 +205,25 @@ export function createJennifer(opts: JenniferOptions = {}) {
     fallback: sms && smsCfg.alertTo ? (_n, text) => sms.alertOwner(smsCfg.alertTo!, `Jennifer: ${text}`) : undefined,
   });
   const quietly = (p: Promise<unknown>) => void p.catch(() => undefined);
+  const handoffs = new HandoffService({
+    clock,
+    settings,
+    audit,
+    actions,
+    authority,
+    contacts,
+    capabilities,
+    conversations,
+    ownerId,
+    notify: (title, body) => notifications.notify({ kind: 'message', title, body, url: '/?tab=today', dedupKey: `handoff:${title}:${clock.now().toISOString().slice(0, 13)}` }),
+  });
+  inbound.handoffContext = (contactId) => handoffs.contextFor(contactId);
+  inbound.onManualTakeover = (conversationId) => quietly(handoffs.onManualReply(conversationId));
   let learning: { rejected: (actionId: string, reason: FeedbackKind, note?: string) => void } = { rejected: () => undefined };
   actions.onTransition((i, from) => {
     if (i.state !== 'awaiting_decision' || from === 'awaiting_decision') return;
+    // Bruno is confirming this one live in chat or voice: no push needed.
+    if (i.stateReason?.startsWith('new conversation')) return;
     const p = i.payload as { to?: string[]; subject?: string };
     quietly(
       notifications.notify({
@@ -375,6 +393,83 @@ export function createJennifer(opts: JenniferOptions = {}) {
       const r = await web.ask(i.question, i.which);
       await costs.record('text', 'ask_ai', 0.08 * r.answers.length);
       return r;
+    },
+  });
+  // ---- Jarvis mode: message someone, confirm with "yes", let Jennifer handle the replies ----
+  tools.register({
+    name: 'message_someone',
+    description:
+      "Start a conversation for Bruno when HE asks you to text, message or email someone (\"text my sister and tell her...\"). Write the message in his voice from what he said. Set handle_replies=true when he wants you to carry the conversation (\"and sort it out\", \"handle it\"), with the goal in one sentence. Nothing is sent yet: read the returned readback to him word for word and wait for his yes, then call confirm_send.",
+    input: z.object({
+      who: z.string().min(1).max(120).describe('Name, relationship ("my sister") or number/email'),
+      message: z.string().min(1).max(1500),
+      channel: z.enum(['imessage', 'sms', 'whatsapp', 'email']).optional(),
+      handle_replies: z.boolean().default(false),
+      goal: z.string().max(300).optional(),
+      hours: z.number().int().min(1).max(72).default(24),
+    }),
+    requiredScopes: ['messages:start'],
+    sideEffect: 'draft',
+    timeoutMs: 5000,
+    rateLimitPerMinute: 10,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i, ctx) => handoffs.propose({ who: i.who, message: i.message, channel: i.channel, handleReplies: i.handle_replies, goal: i.goal, hours: i.hours, proposedBy: `agent:${ctx.role}` }),
+  });
+  tools.register({
+    name: 'confirm_send',
+    description: "Send the message you just read back, after Bruno clearly said yes. Only works with Bruno's own yes; if he hesitated or changed something, call message_someone again instead.",
+    input: z.object({ handoff_id: z.string().optional() }),
+    requiredScopes: ['messages:start'],
+    sideEffect: 'external_write',
+    timeoutMs: 15_000,
+    rateLimitPerMinute: 10,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i, ctx) => {
+      const h = handoffs.confirm({ handoffId: i.handoff_id, ownerWords: ctx.ownerWords, ownerWordsAt: ctx.ownerWordsAt });
+      await actions.runDue();
+      const a = actions.get(h.openerActionId);
+      return { sent: a.state === 'provider_accepted' || a.state === 'confirmed', state: a.state, to: h.contactName, handlingReplies: h.handleReplies, problem: a.state === 'failed' ? a.stateReason : undefined };
+    },
+  });
+  tools.register({
+    name: 'save_contact',
+    description: 'Save a person Bruno tells you about ("my sister is Ana, +1 305 555 0100"). Use his exact words; the number or email must be one he said or typed.',
+    input: z.object({ name: z.string().min(1).max(80), phone: z.string().max(30).optional(), email: z.string().email().optional(), relation: z.string().max(40).optional() }),
+    requiredScopes: ['messages:start'],
+    sideEffect: 'draft',
+    timeoutMs: 3000,
+    rateLimitPerMinute: 10,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i, ctx) => handoffs.saveContact({ ...i, ownerWords: ctx.ownerWords }),
+  });
+  tools.register({
+    name: 'get_debrief',
+    description: 'What Jennifer did and what needs Bruno: every message she sent (exact text and why she was allowed), conversations she handled for him with the full exchange, decisions waiting for him, problems, and how many messages came in. Default: since this morning.',
+    input: z.object({ hours: z.number().int().min(1).max(168).optional() }),
+    requiredScopes: ['debrief:read'],
+    sideEffect: 'read',
+    timeoutMs: 5000,
+    rateLimitPerMinute: 20,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i) => {
+      const since = i.hours ? new Date(clock.now().getTime() - i.hours * 3600_000) : DateTime.fromJSDate(clock.now()).setZone(config.homeTimeZone).startOf('day').toJSDate();
+      return buildDebrief({ actions, conversations, handoffs, authority, ownerId }, since);
+    },
+  });
+  tools.register({
+    name: 'stop_handling',
+    description: 'Stop handling a conversation for Bruno ("stop texting my sister", "I\'ll take it from here").',
+    input: z.object({ who: z.string().min(1).max(120) }),
+    requiredScopes: ['messages:start'],
+    sideEffect: 'draft',
+    timeoutMs: 3000,
+    rateLimitPerMinute: 10,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i) => {
+      const ids = new Set(handoffs.findContacts(i.who).map((c) => c.id));
+      const active = handoffs.list().filter((h) => ids.has(h.contactId) && (h.status === 'active' || h.status === 'awaiting_confirmation'));
+      for (const h of active) await handoffs.stop(h.id, 'Bruno said stop');
+      return { stopped: active.map((h) => h.contactName) };
     },
   });
   tools.register({
@@ -561,6 +656,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
     elevenlabs,
     claudeDelegate,
     workforce,
+    handoffs,
     costs,
     metrics,
     retention,
