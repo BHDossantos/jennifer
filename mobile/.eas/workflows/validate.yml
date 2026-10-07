@@ -1,0 +1,11 @@
+name: Jennifer Mobile Validation
+
+on:
+  pull_request: {}
+
+jobs:
+  validate:
+    name: Typecheck Jennifer Mobile
+    steps:
+      - run: npm install
+      - run: npm run typecheck
