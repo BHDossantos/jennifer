@@ -18,3 +18,7 @@ The first foundation connects to the existing /health and /v1/chat APIs. Session
 - Native push adapter
 - Explicit contacts/calendar/photos permissions
 - EAS iOS and Android build profiles
+
+
+## Cloud release
+This app is linked to EAS project 2a78c731-c1b8-41d0-8f80-bf97e9fd9949. Routine releases are designed to run from GitHub Actions, not a developer PC. Add an Expo access token as the GitHub Actions secret EXPO_TOKEN. Apple App Store Connect and Google Play service credentials belong in EAS Credentials, never in Git.
