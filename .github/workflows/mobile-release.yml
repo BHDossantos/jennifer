@@ -1,0 +1,36 @@
+name: Jennifer Mobile Release
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        required: true
+        default: all
+        type: choice
+        options: [all, ios, android]
+      submit:
+        description: Submit successful production builds to store testing
+        required: true
+        default: false
+        type: boolean
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm install
+      - run: npm run typecheck
+      - name: Install EAS CLI
+        run: npm install --global eas-cli
+      - name: Build in EAS cloud
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas build --platform ${{ inputs.platform }} --profile production --non-interactive ${{ inputs.submit && '--auto-submit' || '' }}
