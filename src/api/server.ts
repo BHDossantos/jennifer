@@ -118,6 +118,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   app.get('/sw.js', async (_req, reply) => reply.type('text/javascript').header('cache-control', 'no-cache').send(SERVICE_WORKER));
   app.get('/icon-192.png', async (_req, reply) => reply.type('image/png').send(appIcon(192)));
   app.get('/icon-512.png', async (_req, reply) => reply.type('image/png').send(appIcon(512)));
+  app.get('/favicon.ico', async (_req, reply) => reply.type('image/png').header('cache-control', 'public, max-age=604800').send(appIcon(64)));
   app.get('/apple-touch-icon.png', async (_req, reply) => reply.type('image/png').send(appIcon(180)));
 
   // ---- Today / Connections ------------------------------------------------

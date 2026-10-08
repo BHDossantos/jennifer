@@ -34,6 +34,9 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   .btn { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:8px 12px; font:inherit; cursor:pointer; }
   .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
   .btn.danger { color:var(--warn); }
+  .welcome { margin-top:24px; text-align:center; padding:28px 20px; }
+  .welcome h2 { margin:0 0 8px; }
+  .btn.big { font-size:18px; padding:14px 22px; width:100%; max-width:320px; }
   #talknow { position:fixed; inset:0; z-index:20; border:0; background:var(--accent); color:#fff; font-size:22px; padding:24px; }
   #voice { width:56px; height:56px; border-radius:50%; border:0; background:var(--accent); color:#fff; position:fixed; right:16px; bottom:16px; font-size:13px; }
   @media (prefers-reduced-motion: no-preference) { #voice[data-state="listening"] { animation: pulse 1.6s infinite; } }
@@ -60,9 +63,25 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
 <button id="voice" data-state="offline" aria-label="Talk to Jennifer">Talk</button>
 <script>
 const $ = (s) => document.querySelector(s);
+// Safety net: a script error must never leave a blank screen.
+window.addEventListener('error', (ev) => {
+  const v = document.getElementById('view');
+  if (v && !v.textContent.trim()) v.innerHTML = '<div class="card"><strong>Jennifer hit a problem loading.</strong><p class="muted">' + String((ev && ev.message) || 'Unknown error').replace(/[&<>"]/g, '') + '</p><button class="btn primary" onclick="location.reload()">Reload</button></div>';
+});
 let token = null;
-try { token = sessionStorage.getItem('jennifer_token'); } catch {}
-const saveToken = (t) => { token = t; try { sessionStorage.setItem('jennifer_token', t); } catch {} };
+// A passkey session (device-bound, revocable in Settings → Devices) is remembered so the Home Screen app
+// opens signed in; the one-time bootstrap code is kept for this tab only.
+try { token = localStorage.getItem('jennifer_session') || sessionStorage.getItem('jennifer_token'); } catch {}
+const saveToken = (t, remember = false) => {
+  token = t || null;
+  try {
+    if (remember && t) localStorage.setItem('jennifer_session', t); else localStorage.removeItem('jennifer_session');
+    if (t) sessionStorage.setItem('jennifer_token', t); else sessionStorage.removeItem('jennifer_token');
+  } catch {}
+};
+function signedOut(msg) {
+  $('#view').innerHTML = '<div class="card welcome"><h2>Hi Bruno</h2><p>' + (msg ? esc(msg) : 'Sign in with Face ID to open Jennifer.') + '</p><button class="btn primary big" id="signin2">Sign in with Face ID</button><p class="muted">First time on this device? Tap it and enter the one-time setup code from Render.</p></div>';
+}
 // WebAuthn helpers: the server speaks base64url JSON; the browser needs ArrayBuffers.
 const b64uToBuf = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0)).buffer;
 const bufToB64u = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).split('+').join('-').split('/').join('_').replace(/=+$/, '');
@@ -87,7 +106,7 @@ async function signIn() {
     return;
   }
   const r = await fetch('/v1/auth/passkeys/login/verify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ handle: o.handle, response: await passkeyGet(o.options) }) }).then((r) => r.json());
-  if (r.token) { saveToken(r.token); show('today'); }
+  if (r.token) { saveToken(r.token, true); show('today'); }
 }
 async function registerDevice() {
   const o = await api('/v1/auth/passkeys/register/options', { method: 'POST', body: '{}' });
@@ -103,6 +122,7 @@ const api = async (path, opts = {}, retried = false) => {
   const body = await r.json().catch(() => ({}));
   // Sensitive changes ask for a fresh passkey confirmation; do it once and retry.
   if (!r.ok && body.error === 'approval.step_up_required' && !retried && !path.startsWith('/v1/auth/step-up')) { await stepUp(); return api(path, opts, true); }
+  if (r.status === 401 && !path.startsWith('/v1/auth/')) { saveToken(''); signedOut('Your session ended. Sign in again with Face ID.'); throw new Error('signed out'); }
   if (!r.ok) throw new Error(body.message || body.error || r.status);
   return body;
 };
@@ -315,12 +335,18 @@ async function show(tab) {
   if (!views[tab]) tab = 'today';
   current = tab;
   document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'));
-  try { $('#view').innerHTML = await views[tab](); if (/^Error/.test($('#status').textContent)) $('#status').textContent = ''; } catch (e) { $('#status').textContent = 'Error: ' + e.message; }
+  if (!token) return signedOut();
+  try { $('#view').innerHTML = await views[tab](); if (/^Error/.test($('#status').textContent)) $('#status').textContent = ''; }
+  catch (e) {
+    if (!token) return;
+    // Never leave an empty dark screen: say what failed and offer a retry.
+    $('#view').innerHTML = '<div class="card"><strong>Couldn\u2019t load ' + esc(tab) + '</strong><p class="muted">' + esc(e.message || 'Network error') + '</p><button class="btn primary" data-tab="' + esc(tab) + '">Try again</button></div>';
+  }
 }
 document.addEventListener('click', async (e) => {
   const t = e.target;
   if (t.dataset.tab) { if (t.dataset.tab === 'conversations') convOpen = null; return show(t.dataset.tab); }
-  if (t.id === 'signin') return signIn().catch((err) => { $('#status').textContent = 'Sign-in failed: ' + err.message; });
+  if (t.id === 'signin' || t.id === 'signin2') return signIn().catch((err) => { $('#status').textContent = 'Sign-in failed: ' + err.message; });
   if (t.dataset.approve) { const go = () => api('/v1/actions/' + t.dataset.approve + '/approve', { method: 'POST', body: JSON.stringify({ revision: +t.dataset.rev, payloadHash: t.dataset.hash }) });
     let r; try { r = await go(); } catch (err) { if (!/second-factor/.test(err.message)) throw err; await stepUp(); r = await go(); }
     $('#status').textContent = 'Result: ' + r.state; return show(current); }
@@ -624,7 +650,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
 const startTab = new URLSearchParams(location.search).get('tab');
 const googleResult = new URLSearchParams(location.search).get('google');
 if (googleResult) setTimeout(() => { $('#status').textContent = googleResult === 'connected' ? 'Google Calendar connected.' : 'Google Calendar: ' + googleResult; }, 500);
-if (token) show(startTab && views[startTab] ? startTab : 'today'); else $('#view').innerHTML = '<p class="muted">Sign in with your passkey to continue.</p>';
+if (token) show(startTab && views[startTab] ? startTab : 'today'); else signedOut();
 if (new URLSearchParams(location.search).get('talk') === '1') {
   // Opened by "Hey Siri, Jennifer" or the Action button: start talking straight away when the browser allows it, else one tap.
   if (token) startVoice().catch(() => { stopVoice(); talkPrompt(); }); else talkPrompt();

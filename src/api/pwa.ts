@@ -21,7 +21,7 @@ export const MANIFEST = {
 };
 
 export const SERVICE_WORKER = `
-const SHELL = 'jennifer-shell-v2';
+const SHELL = 'jennifer-shell-v3';
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(['/', '/manifest.webmanifest', '/icon-192.png'])));
   self.skipWaiting();
@@ -47,7 +47,21 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   // Never cache API calls or anything private: network only.
   if (url.origin !== location.origin || url.pathname.startsWith('/v1/') || e.request.method !== 'GET') return;
-  e.respondWith(fetch(e.request).then((r) => { const copy = r.clone(); caches.open(SHELL).then((c) => c.put(e.request, copy)); return r; }).catch(() => caches.match(e.request)));
+  e.respondWith(
+    fetch(e.request)
+      .then((r) => {
+        // Only keep good copies: a cached error page would show up as a blank screen later.
+        if (r.ok && r.type === 'basic') { const copy = r.clone(); caches.open(SHELL).then((c) => c.put(e.request, copy)); }
+        return r;
+      })
+      .catch(async () => {
+        const hit = (await caches.match(e.request, { ignoreSearch: true })) || (e.request.mode === 'navigate' ? await caches.match('/') : undefined);
+        if (hit) return hit;
+        if (e.request.mode === 'navigate')
+          return new Response('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="background:#141213;color:#f2eeeb;font:17px -apple-system,system-ui,sans-serif;padding:48px 24px;text-align:center"><h2>Jennifer is offline</h2><p>Check your connection, then try again.</p><button onclick="location.reload()" style="font-size:17px;padding:12px 20px;border-radius:12px;border:0;background:#d58aa3;color:#fff">Try again</button></body>', { headers: { 'content-type': 'text/html; charset=utf-8' } });
+        return new Response('', { status: 504 });
+      }),
+  );
 });
 `;
 
