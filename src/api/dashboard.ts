@@ -153,9 +153,10 @@ const views = {
         \${h.status === 'active' ? '<button class="btn" data-stophandoff="' + esc(h.with) + '">Stop, I\\u2019ll take it</button>' : ''}</details>\`).join('')}
       \${db.sent.length ? '<details><summary>Everything I sent</summary>' + db.sent.map((m) => '<div class="muted">' + esc(m.channel) + ' to ' + esc(m.to.join(', ')) + ' · ' + esc(m.authorizedBy) + '</div><div>' + esc(m.text) + '</div>').join('') + '</details>' : ''}
       \${db.problems.map((p) => '<div class="bad">' + esc(p.what) + ' to ' + esc(p.to.join(', ')) + ': ' + esc(p.error) + '</div>').join('')}</div>\` : '';
+    const warn = (t.configWarnings || []).length ? '<div class="card bad"><strong>Some settings in Render need fixing</strong>' + t.configWarnings.map((w) => '<div>' + esc(w) + '</div>').join('') + '</div>' : '';
     const todayCal = (t.brief.today || []).length ? '<div class="card"><strong>Today</strong>' + t.brief.today.map((e) => '<div>' + esc(e.time) + ' · ' + esc(e.title) + '</div>').join('') + '</div>' : '';
     const b = t.brief;
-    return setup + debrief + todayCal + \`<div class="card"><strong>Connector health</strong>\${b.connectorHealth.map(c => \`<div class="\${c.state === 'ok' ? 'good' : 'bad'}">\${esc(c.connector)}: \${esc(c.detail)}</div>\`).join('') || '<div class="muted">No accounts connected yet.</div>'}</div>
+    return warn + setup + debrief + todayCal + \`<div class="card"><strong>Connector health</strong>\${b.connectorHealth.map(c => \`<div class="\${c.state === 'ok' ? 'good' : 'bad'}">\${esc(c.connector)}: \${esc(c.detail)}</div>\`).join('') || '<div class="muted">No accounts connected yet.</div>'}</div>
       <h2>Needs your decision</h2>\${t.awaitingDecision.map(card).join('') || '<p class="muted">Nothing waiting.</p>'}
       <h2>Completed</h2>\${b.completed.map(c => '<div class="card">' + esc(c.summary) + '</div>').join('') || '<p class="muted">Nothing completed in the last 24 hours.</p>'}
       <h2>Blocked</h2>\${b.failures.map(f => '<div class="card bad">' + esc(f.summary) + '<div class="muted">' + esc(f.recovery) + '</div></div>').join('') || '<p class="muted">No failures.</p>'}\`;
@@ -189,7 +190,7 @@ const views = {
       <div class="row"><button class="btn primary" data-gcal="1">Connect Google Calendar (read &amp; write)</button></div>
       <div class="row"><button class="btn" data-cal="feed">Add Google Calendar (read-only link)</button><button class="btn" data-cal="sync">Refresh now</button></div></div>\`;
     const dg = await api('/v1/delegate').catch(() => null);
-    const claudeCard = dg ? \`<div class="card"><strong>Claude does tasks for you</strong> <span class="\${dg.configured ? 'good' : 'bad'}">\${dg.configured ? 'connected' : 'not connected'}</span>
+    const claudeCard = dg ? \`<div class="card"><strong>Claude does tasks for you</strong> <span class="\${dg.configured ? 'good' : 'bad'}">\${dg.configured ? 'connected' : 'not connected'}</span>\${dg.problem ? '<div class="bad">' + esc(dg.problem) + '</div>' : ''}
       <p class="muted">Jennifer decides; Claude does the hands-on work with the accounts connected to your Claude account (Calendar, Gmail, Drive…). Every task waits for your OK in Tasks first. Jennifer never sees those logins.</p>
       <details\${dg.configured ? '' : ' open'}><summary>Set it up (about 5 minutes)</summary><ol>
         <li>Open <b>claude.ai/code/routines</b> → <b>New routine</b>. Name it <b>Jennifer tasks</b>.</li>

@@ -1,3 +1,4 @@
+import { configWarnings } from '../core/config.js';
 import { readFileSync } from 'node:fs';
 import { newId } from '../core/util.js';
 import { renderUntrusted, wrapUntrusted } from '../security/untrusted.js';
@@ -13,7 +14,7 @@ import { verifyWebhookToken, type BlueBubblesMessage } from '../connectors/imess
 import { toE164, verifyMetaSignature, type WhatsAppWebhookValue } from '../connectors/whatsapp/cloud.js';
 import { redactSecrets } from '../security/redaction.js';
 import { DASHBOARD_HTML } from './dashboard.js';
-import { MANIFEST, SERVICE_WORKER, appIcon } from './pwa.js';
+import { MANIFEST, SERVICE_WORKER, appIcon, RESET_HTML } from './pwa.js';
 import { FEMALE_VOICE_CANDIDATES } from '../voice/realtime.js';
 import { MISSION_PRESETS, MissionInputSchema } from '../missions/missions.js';
 import { PrefsSchema, PushSubscriptionSchema } from '../notify/push.js';
@@ -118,11 +119,14 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   app.get('/sw.js', async (_req, reply) => reply.type('text/javascript').header('cache-control', 'no-cache').send(SERVICE_WORKER));
   app.get('/icon-192.png', async (_req, reply) => reply.type('image/png').send(appIcon(192)));
   app.get('/icon-512.png', async (_req, reply) => reply.type('image/png').send(appIcon(512)));
+  app.get('/reset', async (_req, reply) => reply.type('text/html').header('cache-control', 'no-store').header('clear-site-data', '"cache"').send(RESET_HTML));
   app.get('/favicon.ico', async (_req, reply) => reply.type('image/png').header('cache-control', 'public, max-age=604800').send(appIcon(64)));
   app.get('/apple-touch-icon.png', async (_req, reply) => reply.type('image/png').send(appIcon(180)));
 
   // ---- Today / Connections ------------------------------------------------
   app.get('/v1/today', owner, async () => ({
+    /** Settings in Render that were ignored at startup (Jennifer still runs). */
+    configWarnings: [...configWarnings, ...(j.claudeDelegate.problem ? [j.claudeDelegate.problem] : [])],
     brief: j.dailyBrief(),
     awaitingDecision: j.actions.list({ state: 'awaiting_decision' }).map(approvalCard),
     controls: j.controls.status(),
@@ -953,6 +957,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   /** Setup status and the prompt Bruno pastes into his routine. */
   app.get('/v1/delegate', owner, async () => ({
     configured: j.claudeDelegate.configured,
+    problem: j.claudeDelegate.problem,
     publicUrlSet: !!j.config.publicUrl,
     callbackHost: j.config.publicUrl ? new URL(j.config.publicUrl).host : undefined,
     routinePrompt: ROUTINE_PROMPT,

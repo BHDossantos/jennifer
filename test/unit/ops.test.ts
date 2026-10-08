@@ -125,3 +125,17 @@ describe('nightly style learning (§13)', () => {
     expect(fb.rulesFor('music').map((r) => r.rule)).toEqual(['Open with "Ciao" and the first name.']);
   });
 });
+
+describe('startup never fails on a mistyped optional setting', () => {
+  it('drops just that setting, records a warning, and still requires the core secrets', async () => {
+    const { loadConfig, configWarnings } = await import('../../src/core/config.js');
+    const before = configWarnings.length;
+    const cfg = loadConfig({ JENNIFER_ENV: 'production', JENNIFER_API_TOKEN: 'token-0123456789abcdef', JENNIFER_WEBHOOK_SECRET: 'secret-0123456789abcdef', CLAUDE_ROUTINE_URL: 'not a url', WORKFORCE_URL: 'workforce', JENNIFER_ELEVENLABS_VOICE_ID: 'bad id!', OPENAI_API_KEY: 'sk-x' } as never);
+    expect(cfg.claudeRoutine.url).toBeUndefined();
+    expect(cfg.workforce.url).toBeUndefined();
+    expect(cfg.elevenlabs.voiceId).toBe('LM5QaByxyWDmNhcQTYiS');
+    expect(cfg.openai.apiKey).toBe('sk-x');
+    expect(configWarnings.slice(before).join(' ')).toMatch(/claudeRoutine\.url.*workforce\.url|workforce\.url.*claudeRoutine\.url/s);
+    expect(() => loadConfig({ JENNIFER_ENV: 'production' } as never)).toThrow(/JENNIFER_API_TOKEN/);
+  });
+});

@@ -103,7 +103,9 @@ describe('Claude does hands-on tasks through Bruno’s routine', () => {
   });
 
   it('only accepts the official routine fire URL and exposes setup help', async () => {
-    expect(() => new ClaudeRoutineDelegate({ routineUrl: 'https://evil.example/fire' })).toThrow(/routine fire URL/);
+    const bad = new ClaudeRoutineDelegate({ routineUrl: 'https://evil.example/fire', token: 't0123456789', callbackBase: 'https://j.test', secret: 's0123456789abcdef' });
+    expect(bad.configured).toBe(false); // switched off, never fires to that address, and never stops Jennifer
+    expect(bad.problem).toMatch(/routine fire URL/);
     const { app } = setup();
     const d = (await app.inject({ method: 'GET', url: '/v1/delegate', headers: { authorization: `Bearer ${OWNER}` } })).json();
     expect(d).toMatchObject({ configured: true, callbackHost: 'jennifer-test.onrender.com' });

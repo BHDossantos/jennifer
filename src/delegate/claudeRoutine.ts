@@ -31,11 +31,17 @@ const ROUTINE_URL = /^https:\/\/api\.anthropic\.com\/v1\/claude_code\/routines\/
 
 export class ClaudeRoutineDelegate {
   private reports = new Map<string, DelegateReport>();
+  /** Why delegation is off despite being set up (e.g. a mistyped URL). */
+  problem?: string;
 
   constructor(
     private c: { routineUrl?: string; token?: string; callbackBase?: string; secret?: string; fetchImpl?: typeof fetch; now?: () => Date },
   ) {
-    if (c.routineUrl && !ROUTINE_URL.test(c.routineUrl)) throw new Error('CLAUDE_ROUTINE_URL must be the routine fire URL from claude.ai/code/routines (https://api.anthropic.com/v1/claude_code/routines/trig_…/fire)');
+    if (c.routineUrl && !ROUTINE_URL.test(c.routineUrl)) {
+      // Never stop Jennifer over this: switch delegation off and say why.
+      this.problem = 'CLAUDE_ROUTINE_URL must be the routine fire URL from claude.ai/code/routines (https://api.anthropic.com/v1/claude_code/routines/trig_…/fire)';
+      this.c = { ...c, routineUrl: undefined };
+    }
   }
 
   get configured(): boolean {

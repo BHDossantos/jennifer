@@ -86,7 +86,12 @@ describe('Jennifer voice', () => {
   it('serves an installable app shell with valid PNG icons', async () => {
     const { app } = setup();
     expect((await app.inject({ method: 'GET', url: '/manifest.webmanifest' })).json()).toMatchObject({ display: 'standalone', start_url: '/' });
-    expect((await app.inject({ method: 'GET', url: '/sw.js' })).body).toMatch(/startsWith\('\/v1\/'\)/);
+    const sw = (await app.inject({ method: 'GET', url: '/sw.js' })).body;
+    expect(sw).not.toContain("addEventListener('fetch'"); // never serves pages from a cache (black-screen fix)
+    expect(sw).toContain("addEventListener('push'");
+    const reset = await app.inject({ method: 'GET', url: '/reset' });
+    expect(reset.body).toContain('unregister');
+    expect(reset.headers['cache-control']).toBe('no-store');
     const icon = (await app.inject({ method: 'GET', url: '/apple-touch-icon.png' })).rawPayload;
     expect(icon.subarray(1, 4).toString()).toBe('PNG');
     expect(icon.readUInt32BE(16)).toBe(180);

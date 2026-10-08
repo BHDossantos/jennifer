@@ -95,8 +95,14 @@ const ConfigSchema = z.object({
 });
 export type Config = z.infer<typeof ConfigSchema>;
 
+/** Optional integrations: a mistyped value switches that one integration off instead of stopping Jennifer. */
+const OPTIONAL_SECTIONS = new Set(['anthropic', 'sms', 'imessage', 'whatsapp', 'google', 'workforce', 'claudeRoutine', 'elevenlabs', 'publicUrl', 'modelProvider']);
+
+/** Settings that were ignored at startup, shown to Bruno in the app. */
+export const configWarnings: string[] = [];
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const cfg = ConfigSchema.parse({
+  const input: Record<string, any> = {
     env: env.JENNIFER_ENV,
     port: env.PORT,
     ownerId: env.JENNIFER_OWNER_ID,
@@ -152,7 +158,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       perTaskMaxEur: env.JENNIFER_TASK_MAX_EUR,
       perCallMaxMinutes: env.JENNIFER_CALL_MAX_MINUTES,
     },
-  });
+  };
+  let parsed = ConfigSchema.safeParse(input);
+  for (let round = 0; !parsed.success && round < 20; round++) {
+    let dropped = false;
+    for (const issue of parsed.error.issues) {
+      const [section, key] = issue.path.map(String);
+      if (!section || !OPTIONAL_SECTIONS.has(section)) continue;
+      if (key && input[section] && typeof input[section] === 'object') delete input[section][key];
+      else delete input[section];
+      configWarnings.push(`${section}${key ? '.' + key : ''}: ${issue.message} — ignored, so that integration is off until it is fixed in Render`);
+      dropped = true;
+    }
+    if (!dropped) break;
+    parsed = ConfigSchema.safeParse(input);
+  }
+  if (!parsed.success) throw parsed.error;
+  for (const w of configWarnings) console.warn(`Config warning: ${w}`);
+  const cfg = parsed.data;
   if (cfg.env === 'production' && (!cfg.apiToken || !cfg.webhookSecret)) throw new Error('Production requires JENNIFER_API_TOKEN and JENNIFER_WEBHOOK_SECRET');
   return cfg;
 }
