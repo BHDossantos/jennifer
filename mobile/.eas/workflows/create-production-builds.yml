@@ -4,7 +4,7 @@ name: Create Jennifer Production Builds
 # The iOS build goes straight to TestFlight.
 on:
   push:
-    branches: ['mobile/jennifer-expo-foundation']
+    branches: ['claude/new-session-ruep5f', 'mobile/jennifer-expo-foundation']
     paths: ['mobile/**']
 
 jobs:
