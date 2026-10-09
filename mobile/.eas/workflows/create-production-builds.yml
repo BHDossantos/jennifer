@@ -1,6 +1,12 @@
 name: Create Jennifer Production Builds
 
-# Run from expo.dev → jennifer → Workflows. The iOS build goes straight to TestFlight.
+# Runs on every push to the mobile branch (or manually from expo.dev → jennifer → Workflows).
+# The iOS build goes straight to TestFlight.
+on:
+  push:
+    branches: ['mobile/jennifer-expo-foundation']
+    paths: ['mobile/**']
+
 jobs:
   build_android:
     name: Build Jennifer Android
