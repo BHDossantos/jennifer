@@ -6,13 +6,22 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_JENNIFER_API_URL": "https://jennifer-29d4.onrender.com"
+      }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_JENNIFER_API_URL": "https://jennifer-29d4.onrender.com"
+      }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_JENNIFER_API_URL": "https://jennifer-29d4.onrender.com"
+      }
     }
   },
   "submit": {

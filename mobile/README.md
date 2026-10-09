@@ -30,3 +30,17 @@ Routine releases are designed to run from GitHub Actions, not a developer PC. Ad
 - Store privacy metadata, screenshots, icons and final signed release validation
 
 No API keys, Apple credentials, Google credentials, signing keys, bootstrap tokens or production secrets belong in this repository.
+
+## Connecting the app (TestFlight)
+
+1. In Jennifer on the web (Safari or your computer): **Settings → Connect the iPhone app → Make a code** (Face ID confirms it).
+2. Open the app and type the code. It works once and expires after 10 minutes.
+3. The app gets its own session, listed under **Settings → Devices** on the web, where you can revoke it.
+
+The server address is baked into every EAS build (`EXPO_PUBLIC_JENNIFER_API_URL` in `eas.json`, default `https://jennifer-29d4.onrender.com`).
+
+## Why the first TestFlight builds were blank
+
+- Two copies of `expo-asset` and `expo-font` were installed (SDK 54's and v57, pulled in through `expo-audio` and `@expo/vector-icons`); the native build linked the wrong ones. They are now pinned to SDK 54 versions.
+- The production build had no server address, and there was no sign-in, so every request failed.
+- The Today screen rendered an object as text, which crashes a release build with no visible error. An app-wide error screen now replaces any crash.

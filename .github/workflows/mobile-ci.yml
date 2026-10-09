@@ -20,4 +20,4 @@ jobs:
           cache-dependency-path: mobile/package-lock.json
       - run: npm install
       - run: npm run typecheck
-      - run: npx expo export --platform web
+      - run: npx expo export --platform ios
