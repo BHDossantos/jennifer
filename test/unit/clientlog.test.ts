@@ -8,6 +8,9 @@ describe('Home Screen app boot reports', () => {
     const app = buildServer(j, { tokens: { 'owner-token-0123456789': 'owner' } });
     const html = (await app.inject({ method: 'GET', url: '/' })).body;
     expect(html).toContain('Loading Jennifer…');
+    const hello = (await app.inject({ method: 'GET', url: '/hello' })).body;
+    expect(hello).toContain('It works');
+    expect(hello).not.toContain('manifest');
     expect(html).toContain("send('html')");
     const beacon = (body: string) => app.inject({ method: 'POST', url: '/v1/client-log', headers: { 'content-type': 'text/plain' }, payload: body });
     expect((await beacon(JSON.stringify({ stage: 'error', msg: "Can't find variable: foo @:12:3", mode: 'home-screen app', ua: 'iPhone', path: '/', ms: 42 }))).statusCode).toBe(204);

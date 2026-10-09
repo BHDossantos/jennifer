@@ -14,7 +14,7 @@ import { verifyWebhookToken, type BlueBubblesMessage } from '../connectors/imess
 import { toE164, verifyMetaSignature, type WhatsAppWebhookValue } from '../connectors/whatsapp/cloud.js';
 import { redactSecrets } from '../security/redaction.js';
 import { DASHBOARD_HTML } from './dashboard.js';
-import { MANIFEST, SERVICE_WORKER, appIcon, RESET_HTML } from './pwa.js';
+import { MANIFEST, SERVICE_WORKER, appIcon, RESET_HTML, HELLO_HTML } from './pwa.js';
 import { FEMALE_VOICE_CANDIDATES } from '../voice/realtime.js';
 import { MISSION_PRESETS, MissionInputSchema } from '../missions/missions.js';
 import { PrefsSchema, PushSubscriptionSchema } from '../notify/push.js';
@@ -119,6 +119,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   app.get('/sw.js', async (_req, reply) => reply.type('text/javascript').header('cache-control', 'no-cache').send(SERVICE_WORKER));
   app.get('/icon-192.png', async (_req, reply) => reply.type('image/png').send(appIcon(192)));
   app.get('/icon-512.png', async (_req, reply) => reply.type('image/png').send(appIcon(512)));
+  app.get('/hello', async (_req, reply) => reply.type('text/html; charset=utf-8').header('cache-control', 'no-store').send(HELLO_HTML));
   app.get('/reset', async (_req, reply) => reply.type('text/html').header('cache-control', 'no-store').header('clear-site-data', '"cache"').send(RESET_HTML));
   // Boot reports from the app (stage + error text only), kept in memory for diagnosing the Home Screen app.
   const clientLog: Array<Record<string, unknown>> = [];

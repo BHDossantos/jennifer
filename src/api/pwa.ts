@@ -117,3 +117,14 @@ export const RESET_HTML = `<!doctype html><meta charset="utf-8"><meta name="view
   setTimeout(() => location.replace('/'), 800);
 })();
 </script></body>`;
+
+/** /hello: the simplest possible page (no manifest, no service worker, no app code), to tell a phone problem from an app problem. */
+export const HELLO_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="apple-mobile-web-app-capable" content="yes"><title>Jennifer test</title></head>
+<body style="margin:0;background:#2f6b43;color:#fff;font:20px -apple-system,system-ui,sans-serif;padding:60px 24px;text-align:center">
+<h1 style="font-size:34px">It works ✓</h1><p>If you can read this on the Home Screen icon, your iPhone can open web apps.</p>
+<p id="info" style="font-size:15px;opacity:.85"></p>
+<script>
+var s = navigator.standalone ? 'Home Screen app' : 'Safari';
+document.getElementById('info').textContent = 'Opened in: ' + s + ' · ' + new Date().toLocaleTimeString();
+try { navigator.sendBeacon('/v1/client-log', new Blob([JSON.stringify({ stage: 'ready', msg: 'hello page', mode: navigator.standalone ? 'home-screen app' : 'browser', ua: navigator.userAgent.slice(0, 180), path: '/hello', ms: 0 })], { type: 'text/plain' })); } catch (e) {}
+</script></body></html>`;
