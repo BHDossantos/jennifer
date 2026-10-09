@@ -1,0 +1,13 @@
+name: Jennifer Mobile Validation
+
+on:
+  pull_request: {}
+
+jobs:
+  validate:
+    name: Typecheck Jennifer Mobile
+    steps:
+      # Custom jobs start in an empty workspace: check out the repo first.
+      - uses: eas/checkout
+      - uses: eas/install_node_modules
+      - run: npm run typecheck
