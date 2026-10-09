@@ -1,5 +1,6 @@
 name: Create Jennifer Production Builds
 
+# Run from expo.dev → jennifer → Workflows. The iOS build goes straight to TestFlight.
 jobs:
   build_android:
     name: Build Jennifer Android
@@ -13,3 +14,9 @@ jobs:
     params:
       platform: ios
       profile: production
+  submit_ios:
+    name: Send to TestFlight
+    needs: [build_ios]
+    type: submit
+    params:
+      build_id: ${{ needs.build_ios.outputs.build_id }}
