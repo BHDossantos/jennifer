@@ -311,6 +311,37 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     }
     if (j.config.env !== 'development') throw new JenniferError('identity.session_required', 'Sign in with a passkey to connect accounts');
   };
+  // ---- Pair the iPhone app with a one-time code ------------------------------------
+  const pairCodes = new Map<string, { expiresAt: number; fromDeviceId: string }>();
+  let pairFailures = { start: 0, n: 0 };
+  const PAIR_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  app.post('/v1/auth/pair/start', owner, async (req) => {
+    const session = requireSession(req);
+    requireSensitive(req);
+    const now = j.clock.now().getTime();
+    for (const [k, v] of pairCodes) if (v.expiresAt <= now) pairCodes.delete(k);
+    const bytes = randomBytes(8);
+    const code = [...bytes].map((b) => PAIR_ALPHABET[b % PAIR_ALPHABET.length]).join('');
+    pairCodes.set(digest(code).toString('hex'), { expiresAt: now + 10 * 60_000, fromDeviceId: session.deviceId });
+    j.audit.record(j.ownerId, 'identity.pair_code_created', session.deviceId, {});
+    return { code: `${code.slice(0, 4)}-${code.slice(4)}`, expiresAt: new Date(now + 10 * 60_000).toISOString() };
+  });
+  app.post('/v1/auth/pair/finish', { bodyLimit: 4096 }, async (req, reply) => {
+    const now = j.clock.now().getTime();
+    if (now - pairFailures.start > 600_000) pairFailures = { start: now, n: 0 };
+    if (pairFailures.n >= 10) return reply.code(429).send({ error: 'identity.pair_locked', message: 'Too many wrong codes. Wait 10 minutes, then make a new code.' });
+    const b = z.object({ code: z.string().min(6).max(20), platform: z.string().max(40).default('ios'), label: z.string().max(80).optional(), osVersion: z.string().max(40).optional() }).parse(req.body);
+    const key = digest(b.code.toUpperCase().replace(/[^A-Z0-9]/g, '')).toString('hex');
+    const entry = pairCodes.get(key);
+    if (!entry || entry.expiresAt <= now) {
+      pairFailures.n++;
+      return reply.code(401).send({ error: 'identity.pair_invalid', message: 'That code is wrong or expired. Make a new one in Jennifer on the web: Settings → Connect the iPhone app.' });
+    }
+    pairCodes.delete(key); // single use
+    const r = await requireIdentity().pairDevice(j.ownerId, { platform: b.platform, label: b.label ?? 'Jennifer iPhone app', osVersion: b.osVersion }, entry.fromDeviceId);
+    securityAlert('Jennifer: iPhone app connected', `${b.label ?? 'The Jennifer app'} was connected to your account. If this wasn't you, revoke it in Settings → Devices.`, `pair:${r.deviceId}`);
+    return { token: r.token, deviceId: r.deviceId };
+  });
   const DeviceInfo = z.object({ platform: z.string().max(40), osVersion: z.string().max(40).optional(), label: z.string().max(80).optional() });
   /** The first passkey is enrolled with the bootstrap token; every later one needs a signed-in, stepped-up session. */
   const registrationSession = async (req: FastifyRequest): Promise<string | undefined> => {

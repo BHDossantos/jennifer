@@ -206,6 +206,24 @@ export class IdentityService {
     this.audit.record(actor, 'identity.device_revoked', deviceId, {});
   }
 
+  /**
+   * The iPhone app (TestFlight) cannot use the web passkey, so Bruno pairs it
+   * from a signed-in, stepped-up web session with a one-time code. The app
+   * gets its own device record and session: revocable in Settings → Devices,
+   * and it must still step up with a passkey on the web for sensitive actions.
+   */
+  async pairDevice(ownerId: string, device: { platform: string; label?: string; osVersion?: string }, pairedFromDeviceId: string): Promise<{ token: string; deviceId: string }> {
+    const deviceId = newId('dev');
+    const token = randomBytes(32).toString('base64url');
+    const now = this.clock.now();
+    await this.db.transaction(async (tx) => {
+      await tx.query('INSERT INTO device (id, owner_id, platform, os_version, public_key, last_seen_at) VALUES ($1,$2,$3,$4,$5,$6)', [deviceId, ownerId, device.platform, device.osVersion ?? null, `paired-app:${deviceId}`, now]);
+      await tx.query('INSERT INTO auth_session (id_hash, owner_id, device_id, role, created_at, expires_at, step_up_at) VALUES ($1,$2,$3,$4,$5,$6,$7)', [hashToken(token), ownerId, deviceId, 'owner', now, new Date(now.getTime() + this.sessionTtl), null]);
+    });
+    this.audit.record(ownerId, 'identity.device_paired', deviceId, { platform: device.platform, label: device.label, pairedFrom: pairedFromDeviceId });
+    return { token, deviceId };
+  }
+
   async logout(session: Session): Promise<void> {
     await this.db.query('UPDATE auth_session SET revoked_at = $1 WHERE id_hash = $2', [this.clock.now(), session.idHash]);
   }
