@@ -7,7 +7,28 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<script>
+/* Boot recorder: tells the server how far the app got (and any error), so a blank Home Screen app can be diagnosed from Safari. No personal data. */
+(function () {
+  var t0 = Date.now();
+  function mode() { try { return navigator.standalone || matchMedia('(display-mode: standalone)').matches ? 'home-screen app' : 'browser'; } catch (e) { return 'unknown'; } }
+  function send(stage, msg) {
+    try {
+      var b = JSON.stringify({ stage: stage, msg: String(msg || '').slice(0, 400), mode: mode(), ua: navigator.userAgent.slice(0, 180), path: location.pathname + location.search, ms: Date.now() - t0 });
+      if (navigator.sendBeacon) navigator.sendBeacon('/v1/client-log', new Blob([b], { type: 'text/plain' }));
+      else fetch('/v1/client-log', { method: 'POST', body: b, headers: { 'content-type': 'text/plain' }, keepalive: true });
+    } catch (e) {}
+  }
+  window.__jlog = send;
+  window.addEventListener('error', function (e) {
+    send('error', (e.message || 'error') + ' @' + (e.filename || '').split('/').pop() + ':' + (e.lineno || '') + ':' + (e.colno || ''));
+    var d = document.getElementById('bootmsg'); if (d) d.textContent = 'Jennifer hit an error: ' + (e.message || 'unknown') + '. Open her in Safari meanwhile.';
+  });
+  window.addEventListener('unhandledrejection', function (e) { send('rejection', (e.reason && e.reason.message) || e.reason); });
+  send('html');
+})();
+</script>
 <meta name="theme-color" content="#141213" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -20,7 +41,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   @media (prefers-color-scheme: dark) { :root { --bg:#141213; --fg:#f2eeeb; --muted:#a79e9a; --card:#1e1b1c; --line:#322d2e; --accent:#d58aa3; --warn:#f0a070; --ok:#7fc79a; } }
   * { box-sizing: border-box; }
   body { margin:0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--fg); }
-  header { padding:16px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); }
+  header { padding:16px; padding-top:calc(16px + env(safe-area-inset-top, 0px)); display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); }
   h1 { font-size:20px; margin:0; letter-spacing:.02em; }
   nav { display:flex; gap:4px; overflow-x:auto; padding:8px 16px; border-bottom:1px solid var(--line); }
   nav button { background:none; border:0; color:var(--muted); padding:8px 12px; border-radius:999px; font:inherit; cursor:pointer; }
@@ -59,7 +80,7 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   <button data-tab="voice">Voice</button>
   <button data-tab="settings">Settings</button>
 </nav>
-<main id="view"></main>
+<main id="view"><div id="bootmsg" style="padding:32px 20px;font:17px -apple-system,system-ui,sans-serif;color:#888;text-align:center">Loading Jennifer…</div></main>
 <button id="voice" data-state="offline" aria-label="Talk to Jennifer">Talk</button>
 <script>
 const $ = (s) => document.querySelector(s);
@@ -153,10 +174,13 @@ const views = {
         \${h.status === 'active' ? '<button class="btn" data-stophandoff="' + esc(h.with) + '">Stop, I\\u2019ll take it</button>' : ''}</details>\`).join('')}
       \${db.sent.length ? '<details><summary>Everything I sent</summary>' + db.sent.map((m) => '<div class="muted">' + esc(m.channel) + ' to ' + esc(m.to.join(', ')) + ' · ' + esc(m.authorizedBy) + '</div><div>' + esc(m.text) + '</div>').join('') + '</details>' : ''}
       \${db.problems.map((p) => '<div class="bad">' + esc(p.what) + ' to ' + esc(p.to.join(', ')) + ': ' + esc(p.error) + '</div>').join('')}</div>\` : '';
+    const cl = await api('/v1/client-log').catch(() => []);
+    const recent = cl.filter((x) => x.mode === 'home-screen app' && Date.now() - Date.parse(x.at) < 6 * 3600_000);
+    const diag = recent.length ? '<details class="card"><summary><strong>Home Screen app report</strong> <span class="muted">(' + recent.length + ' events)</span></summary>' + recent.slice(-15).map((x) => '<div class="' + (x.stage === 'error' || x.stage === 'rejection' ? 'bad' : 'muted') + '">' + esc(new Date(x.at).toLocaleTimeString()) + ' · ' + esc(x.stage) + (x.msg ? ': ' + esc(x.msg) : '') + ' · ' + esc(x.path) + ' · ' + x.ms + ' ms</div>').join('') + '<div class="muted">' + esc((recent.at(-1) || {}).ua || '') + '</div></details>' : '';
     const warn = (t.configWarnings || []).length ? '<div class="card bad"><strong>Some settings in Render need fixing</strong>' + t.configWarnings.map((w) => '<div>' + esc(w) + '</div>').join('') + '</div>' : '';
     const todayCal = (t.brief.today || []).length ? '<div class="card"><strong>Today</strong>' + t.brief.today.map((e) => '<div>' + esc(e.time) + ' · ' + esc(e.title) + '</div>').join('') + '</div>' : '';
     const b = t.brief;
-    return warn + setup + debrief + todayCal + \`<div class="card"><strong>Connector health</strong>\${b.connectorHealth.map(c => \`<div class="\${c.state === 'ok' ? 'good' : 'bad'}">\${esc(c.connector)}: \${esc(c.detail)}</div>\`).join('') || '<div class="muted">No accounts connected yet.</div>'}</div>
+    return warn + diag + setup + debrief + todayCal + \`<div class="card"><strong>Connector health</strong>\${b.connectorHealth.map(c => \`<div class="\${c.state === 'ok' ? 'good' : 'bad'}">\${esc(c.connector)}: \${esc(c.detail)}</div>\`).join('') || '<div class="muted">No accounts connected yet.</div>'}</div>
       <h2>Needs your decision</h2>\${t.awaitingDecision.map(card).join('') || '<p class="muted">Nothing waiting.</p>'}
       <h2>Completed</h2>\${b.completed.map(c => '<div class="card">' + esc(c.summary) + '</div>').join('') || '<p class="muted">Nothing completed in the last 24 hours.</p>'}
       <h2>Blocked</h2>\${b.failures.map(f => '<div class="card bad">' + esc(f.summary) + '<div class="muted">' + esc(f.recovery) + '</div></div>').join('') || '<p class="muted">No failures.</p>'}\`;
@@ -652,6 +676,7 @@ const startTab = new URLSearchParams(location.search).get('tab');
 const googleResult = new URLSearchParams(location.search).get('google');
 if (googleResult) setTimeout(() => { $('#status').textContent = googleResult === 'connected' ? 'Google Calendar connected.' : 'Google Calendar: ' + googleResult; }, 500);
 if (token) show(startTab && views[startTab] ? startTab : 'today'); else signedOut();
+window.__jlog && window.__jlog('ready', token ? 'signed in' : 'signed out');
 if (new URLSearchParams(location.search).get('talk') === '1') {
   // Opened by "Hey Siri, Jennifer" or the Action button: start talking straight away when the browser allows it, else one tap.
   if (token) startVoice().catch(() => { stopVoice(); talkPrompt(); }); else talkPrompt();

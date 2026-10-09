@@ -120,6 +120,25 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   app.get('/icon-192.png', async (_req, reply) => reply.type('image/png').send(appIcon(192)));
   app.get('/icon-512.png', async (_req, reply) => reply.type('image/png').send(appIcon(512)));
   app.get('/reset', async (_req, reply) => reply.type('text/html').header('cache-control', 'no-store').header('clear-site-data', '"cache"').send(RESET_HTML));
+  // Boot reports from the app (stage + error text only), kept in memory for diagnosing the Home Screen app.
+  const clientLog: Array<Record<string, unknown>> = [];
+  let clientLogWindow = { start: 0, n: 0 };
+  app.post('/v1/client-log', { bodyLimit: 2048 }, async (req, reply) => {
+    const now = Date.now();
+    if (now - clientLogWindow.start > 600_000) clientLogWindow = { start: now, n: 0 };
+    if (++clientLogWindow.n > 120) return reply.code(429).send({ error: 'slow down' });
+    let b: unknown = req.body;
+    if (typeof b === 'string') {
+      try { b = JSON.parse(b); } catch { return reply.code(400).send({ error: 'bad report' }); }
+    }
+    const r = z.object({ stage: z.enum(['html', 'ready', 'error', 'rejection']), msg: z.string().max(400).default(''), mode: z.string().max(30), ua: z.string().max(180), path: z.string().max(200), ms: z.number().int().min(0).max(3_600_000) }).safeParse(b);
+    if (!r.success) return reply.code(400).send({ error: 'bad report' });
+    clientLog.push({ ...r.data, at: new Date(now).toISOString() });
+    if (clientLog.length > 60) clientLog.shift();
+    if (r.data.stage === 'error' || r.data.stage === 'rejection') app.log.warn({ clientError: r.data }, 'app error report');
+    return reply.code(204).send();
+  });
+  app.get('/v1/client-log', owner, async () => clientLog);
   app.get('/favicon.ico', async (_req, reply) => reply.type('image/png').header('cache-control', 'public, max-age=604800').send(appIcon(64)));
   app.get('/apple-touch-icon.png', async (_req, reply) => reply.type('image/png').send(appIcon(180)));
 
