@@ -7,5 +7,7 @@ jobs:
   validate:
     name: Typecheck Jennifer Mobile
     steps:
-      - run: npm install
+      # Custom jobs start in an empty workspace: check out the repo first.
+      - uses: eas/checkout
+      - uses: eas/install_node_modules
       - run: npm run typecheck
