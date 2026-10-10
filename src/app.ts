@@ -32,6 +32,7 @@ import { CompanyCrm } from './company/crm.js';
 import { CompanyOS } from './company/engine.js';
 import { dailyBrief as companyDailyBrief, replyToNextAction, prospectToDraft, type WorkflowDeps } from './company/workflows.js';
 import { weeklyContent } from './company/marketing.js';
+import { departmentShift } from './company/departments.js';
 import { TwilioSms } from './connectors/sms/twilio.js';
 import { BlueBubblesIMessage } from './connectors/imessage/bluebubbles.js';
 import { WhatsAppCloud } from './connectors/whatsapp/cloud.js';
@@ -556,6 +557,13 @@ export function createJennifer(opts: JenniferOptions = {}) {
   company.register(replyToNextAction(wfDeps));
   company.register(prospectToDraft(wfDeps));
   company.register(weeklyContent({ ...wfDeps, canSchedule: () => claudeDelegate.configured }));
+  company.register(
+    departmentShift({
+      ...wfDeps,
+      canDelegate: () => claudeDelegate.configured,
+      notify: (title, body, key) => void notifications.notify({ kind: 'decision', title, body, url: '/?tab=company', dedupKey: `${key}:${clock.now().toISOString().slice(0, 13)}` }).catch(() => undefined),
+    }),
+  );
   // WF-02 trigger: a verified inbound message in a company space starts triage when the owner enabled it (profile.autoTriage).
   const handleBeforeCompany = inbound.handle.bind(inbound);
   inbound.handle = async (email, o) => {
@@ -593,8 +601,8 @@ export function createJennifer(opts: JenniferOptions = {}) {
   tools.register({
     name: 'start_company_workflow',
     description:
-      'Start a Company OS workflow for one company: WF-03 daily executive brief; WF-01 prospect research to reviewed drafts (input: segment, geography, batchLimit ≤10, language); WF-02 reply triage (input: conversationId). Results wait for Bruno’s review; nothing is sent.',
-    input: z.object({ companyId: z.enum(COMPANY_IDS), workflowId: z.enum(['WF-01', 'WF-02', 'WF-03', 'WF-04']), input: z.record(z.string(), z.unknown()).default({}) }),
+      'Start a Company OS workflow for one company: WF-03 daily executive brief; WF-01 prospect research to reviewed drafts (input: segment, geography, batchLimit ≤10, language); WF-02 reply triage (input: conversationId); WF-04 weekly social content plan; WF-05 a shift by one department agent (input: department = sales | deals | marketing | operations | intelligence | customer | back_office, optional focus = what Bruno wants it to work on). Results wait for Bruno’s review; nothing is sent.',
+    input: z.object({ companyId: z.enum(COMPANY_IDS), workflowId: z.enum(['WF-01', 'WF-02', 'WF-03', 'WF-04', 'WF-05']), input: z.record(z.string(), z.unknown()).default({}) }),
     requiredScopes: ['company:run'],
     sideEffect: 'draft',
     timeoutMs: 120_000,

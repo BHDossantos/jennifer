@@ -6,6 +6,8 @@ import type { Jennifer } from '../app.js';
 import { ROLE_CATALOG } from '../company/catalog.js';
 import { roleStatus, roleVersion } from '../company/roles.js';
 import { CompanyOS } from '../company/engine.js';
+import { DEPARTMENTS, DEPARTMENT_AGENTS, agentSettings, shiftSlot, skillsOf } from '../company/departments.js';
+import type { Department } from '../company/catalog.js';
 import type { CompanyId } from '../company/model.js';
 
 /**
@@ -95,6 +97,61 @@ export function registerCompanyRoutes(app: FastifyInstance, j: Jennifer, owner: 
     return { ...rec, ...roleStatus(rec, await env(cid)), configuration: v ?? null, history: runs.slice(0, 20).map((r) => ({ runId: r.id, workflowId: r.workflowId, status: r.status, at: r.createdAt })) };
   });
   app.get('/v1/workflows', owner, async () => j.company.workflowList());
+
+  // ---- Department agents (always-on, one per department) ---------------------------
+  const agentsOf = async (cid: CompanyId) => {
+    const { company } = await j.company.access(j.ownerId, cid);
+    const set = agentSettings(company.profile);
+    const cats = await j.companyBrain.approvedCategories(cid);
+    const runs = (await j.companyRepo.runs(cid, 300)).filter((r) => r.workflowId === 'WF-05');
+    const reports = (await j.companyRepo.artifacts(cid)).filter((a) => a.kind === 'department_report');
+    const slot = shiftSlot(j.clock.now(), set.everyHours);
+    const nextShiftAt = new Date((slot + 1) * set.everyHours * 3_600_000).toISOString();
+    const blockers = [
+      ...(company.status !== 'active' ? ['The company is paused'] : []),
+      ...(!cats.size ? ['Teach the company first: add and approve what it sells in Brain (category "offer")'] : []),
+      ...(!j.company.d.executor.available ? ['No AI key on the server'] : []),
+    ];
+    return {
+      settings: set,
+      agents: DEPARTMENTS.map((dept) => {
+        const mine = runs.filter((r) => r.input.department === dept);
+        const last = mine[0];
+        const report = reports.find((a) => (a.content as { department?: string }).department === dept);
+        const on = set.enabled && !set.off.includes(dept);
+        return {
+          department: dept,
+          ...DEPARTMENT_AGENTS[dept],
+          skills: skillsOf(dept).map((r) => ({ id: r.id, name: r.name, does: r.responsibility, delivers: r.deliverable })),
+          status: !on ? 'off' : blockers.length ? 'needs_setup' : last && (last.status === 'queued' || last.status === 'running') ? 'working' : 'on_duty',
+          blockers: on ? blockers : [],
+          nextShiftAt: on && !blockers.length ? nextShiftAt : null,
+          lastShift: last ? { runId: last.id, status: last.status, summary: last.summary, blockers: last.blockers, at: last.createdAt } : null,
+          latestReport: report ? { id: report.id, at: report.createdAt, ...(report.content as object) } : null,
+          shifts: mine.length,
+        };
+      }),
+    };
+  };
+  app.get('/v1/companies/:cid/agents', owner, async (req) => agentsOf(await cidOf(req)));
+  app.put('/v1/companies/:cid/agents', owner, async (req) => {
+    const cid = await cidOf(req, 'admin');
+    const b = z.object({ enabled: z.boolean().optional(), everyHours: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(6), z.literal(8), z.literal(12), z.literal(24)]).optional(), department: z.enum(DEPARTMENTS as [Department, ...Department[]]).optional(), on: z.boolean().optional() }).parse(req.body ?? {});
+    const { company } = await j.company.access(j.ownerId, cid);
+    const cur = agentSettings(company.profile);
+    const off = new Set(cur.off);
+    if (b.department && b.on !== undefined) b.on ? off.delete(b.department) : off.add(b.department);
+    await j.company.updateProfile(actor(req), cid, { ...company.profile, departmentAgents: { enabled: b.enabled ?? cur.enabled, everyHours: b.everyHours ?? cur.everyHours, off: [...off] } });
+    return agentsOf(cid);
+  });
+  /** Put one agent to work now, optionally on something specific. */
+  app.post('/v1/companies/:cid/agents/:dept/run', owner, async (req, reply) => {
+    const cid = await cidOf(req, 'run');
+    const { dept } = z.object({ dept: z.enum(DEPARTMENTS as [Department, ...Department[]]) }).parse(req.params);
+    const b = z.object({ focus: z.string().max(500).optional() }).parse(req.body ?? {});
+    const run = await j.company.createRun(actor(req), cid, 'WF-05', { department: dept, ...(b.focus ? { focus: b.focus } : {}) });
+    return reply.code(202).send(run);
+  });
 
   // ---- Runs -----------------------------------------------------------------------
   app.post('/v1/companies/:cid/runs', owner, async (req, reply) => {

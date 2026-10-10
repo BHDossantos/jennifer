@@ -24,7 +24,8 @@ Implementation of *Jennifer Company OS — Product, design and engineering bluep
 | Company emergency stop | Built | `POST /v1/companies/:id/status` |
 | E01 Controlled sending | Built through Jennifer's approval queue: an approved draft becomes an exact send proposal that waits for Bruno (first contact is never automatic) | `prepare-send` |
 | E02 WF-04 Weekly content & social plan (M04 plan, M09 captions, M17 deterministic claim/price/limit check; each post an approval, then Claude schedules it in Metricool; ad ideas are proposals only, no spend; optional Friday auto-plan) | Built | `src/company/marketing.ts` |
-| E03–E04 Onboarding, support/intelligence workflows (WF-05) | Not built yet | roles stay "design only" |
+| Department agents: one always-on agent per department (sales, deals, marketing, operations, intelligence, customer, back office) per company. Its skills are its department's catalog roles. WF-05 shift every 6 h by default (1–24 h, per company, per department on/off) once the company has approved knowledge: reads the brain, CRM and recent runs, keeps its own notes between shifts, writes a report, files CRM tasks (CRM patches) and Claude tasks (`delegate_task`) for Bruno's OK, drafts text, asks questions. It never sends, posts, spends or changes records by itself | Built | `src/company/departments.ts`, `GET/PUT /v1/companies/:id/agents`, `POST /v1/companies/:id/agents/:dept/run` |
+| E03–E04 Dedicated onboarding and support workflows | Covered by the Customer agent's shifts; no separate workflow yet | — |
 | A02 Back-office (WF-06 cash scenarios) | Not built yet | — |
 | A05 Multi-customer product | Out of scope | — |
 

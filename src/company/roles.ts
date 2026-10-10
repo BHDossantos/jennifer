@@ -178,7 +178,13 @@ export function roleStatus(
   return out;
 }
 
+/** Role versions defined outside the catalog (the department agents). */
+const EXTRA_ROLES: RoleVersion[] = [];
+export function registerRoles(v: RoleVersion[]) {
+  for (const r of v) if (!EXTRA_ROLES.some((x) => x.agentId === r.agentId && x.version === r.version)) EXTRA_ROLES.push(r);
+}
+
 export function roleVersion(id: string, version?: number): RoleVersion | undefined {
-  const v = PILOT_ROLES.find((p) => p.agentId === id);
+  const v = PILOT_ROLES.find((p) => p.agentId === id) ?? EXTRA_ROLES.find((p) => p.agentId === id);
   return v && (version === undefined || v.version === version) ? v : undefined;
 }

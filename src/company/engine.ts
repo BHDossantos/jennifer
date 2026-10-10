@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import { JenniferError } from '../core/types.js';
 import { type Clock, newId } from '../core/util.js';
 import type { AuditLog } from '../audit/audit.js';
+import { DEPARTMENTS, agentSettings, shiftSlot } from './departments.js';
 import { ROLE_CATALOG } from './catalog.js';
 import type { CompanyRepo } from './repo.js';
 import type { Artifact, Company, CompanyId, Membership, Run, RunEvent, RunStatus, RunStep } from './model.js';
@@ -374,6 +375,18 @@ export class CompanyOS {
           const weekOf = local.plus({ weeks: 1 }).startOf('week').toISODate()!;
           const key = `schedule:WF-04:${weekOf}`;
           if (!(await this.d.repo.runByKey(c.id, key))) started.push((await this.createRun(this.d.ownerId, c.id, 'WF-04', { weekOf }, { idempotencyKey: key })).id);
+        }
+      }
+      // Department agents (WF-05): each on-duty department works one shift per slot, day and night.
+      if (c.status === 'active' && this.workflows.has('WF-05')) {
+        const a = agentSettings(c.profile);
+        if (a.enabled && (await this.d.brain.approvedCategories(c.id)).size) {
+          const slot = shiftSlot(now, a.everyHours);
+          for (const dept of DEPARTMENTS) {
+            if (a.off.includes(dept)) continue;
+            const key = `schedule:WF-05:${dept}:${a.everyHours}h:${slot}`;
+            if (!(await this.d.repo.runByKey(c.id, key))) started.push((await this.createRun(this.d.ownerId, c.id, 'WF-05', { department: dept }, { idempotencyKey: key })).id);
+          }
         }
       }
       const t = c.profile.briefTime;

@@ -11,9 +11,12 @@
     customer: { label: 'Customer', color: '#4f9a3f' },
     back_office: { label: 'Back office', color: '#7a7f8a' },
   };
+  const AGENT = { on_duty: 'On duty 24/7', working: 'Working now', off: 'Off', needs_setup: 'Needs setup' };
+  const agentBadge = (a) => badge(AGENT[a.status] || a.status, a.status === 'on_duty' || a.status === 'working' ? 'ok' : a.status === 'needs_setup' ? 'warn' : '');
+  const ago = (iso) => { const m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
   const READY = { ready: 'Ready', needs_setup: 'Needs setup', paused: 'Paused', design_only: 'Design only' };
   const RUN = { queued: 'Queued', running: 'Running', waiting_approval: 'Waiting for your approval', blocked: 'Blocked', reconciling: 'Checking an outcome', succeeded: 'Done', failed: 'Failed', cancelled: 'Cancelled' };
-  const st = { cid: null, sub: 'map', dept: '', q: '', role: null, run: null, poll: null };
+  const st = { cid: null, sub: 'map', dept: '', q: '', role: null, run: null, poll: null, agent: null };
   try { st.cid = localStorage.getItem('jennifer_company'); } catch {}
   const setCid = (c) => { st.cid = c; try { localStorage.setItem('jennifer_company', c); } catch {} };
   const badge = (text, kind) => `<span class="cbadge ${kind || ''}">${esc(text)}</span>`;
@@ -70,10 +73,19 @@
 
   const SUB = {
     async map() {
-      const m = await api(base() + '/map');
-      const depts = m.departments.map((d) => `<button class="dept" style="--c:${DEPT[d.id].color}" data-cos-dept="${d.id}"><strong>${DEPT[d.id].label}</strong><div class="muted">${d.total} roles · ${d.ready} ready · ${d.needsSetup} need setup</div></button>`).join('');
-      return `<div class="map"><div class="hub"><strong>Jennifer</strong> <span class="muted">coordinator</span><div class="muted">${m.coordinator.activeRuns ? m.coordinator.activeRuns + ' runs in progress' : 'No work running right now'}</div></div>${depts}</div>
-        <p class="muted">${m.totals.roles} role definitions: ${m.totals.ready} ready, ${m.totals.needsSetup} need setup, ${m.totals.designOnly} are design records not yet built. A role counts as ready only when its executor, tools, sources and tests exist.</p>`;
+      if (st.agent) return agentDetail(st.agent);
+      const [m, ag] = await Promise.all([api(base() + '/map'), api(base() + '/agents')]);
+      const by = Object.fromEntries(ag.agents.map((a) => [a.department, a]));
+      const depts = m.departments.map((d) => { const a = by[d.id];
+        return `<button class="dept" style="--c:${DEPT[d.id].color}" data-cos-agent="${d.id}"><strong>${DEPT[d.id].label}</strong> ${a ? agentBadge(a) : ''}
+          <div class="muted">${a ? esc(a.name) + ' · ' + a.skills.length + ' skills' : d.total + ' roles'}</div>
+          ${a && a.lastShift ? `<div class="muted">${esc(ago(a.lastShift.at))}: ${esc((a.lastShift.summary || (a.lastShift.blockers || [])[0] || a.lastShift.status).replace(/^[^:]+agent: /, '')).slice(0, 110)}</div>` : a && a.blockers.length ? `<div class="muted">${esc(a.blockers[0]).slice(0, 110)}</div>` : '<div class="muted">First shift soon</div>'}</button>`; }).join('');
+      const s = ag.settings;
+      return `<div class="map"><div class="hub"><strong>Jennifer</strong> <span class="muted">coordinator</span><div class="muted">${m.coordinator.activeRuns ? m.coordinator.activeRuns + ' agents/runs working now' : 'Agents between shifts'}</div></div>${depts}</div>
+        <div class="card"><strong>Department agents</strong> <span class="muted">One agent per department, working around the clock with that department's skills. They propose; you approve.</span>
+          <label><input type="checkbox" data-cos-agents-on ${s.enabled ? 'checked' : ''}> Agents on duty for this company</label>
+          <label>Shift every <select data-cos-agents-every>${[1, 2, 3, 4, 6, 8, 12, 24].map((h) => `<option value="${h}" ${s.everyHours === h ? 'selected' : ''}>${h} hour${h > 1 ? 's' : ''}</option>`).join('')}</select></label></div>
+        <p class="muted">${m.totals.roles} skills across 7 departments. Tap a department to see its agent, its skills and its latest report.</p>`;
     },
     async roles() {
       if (st.role) return roleDetail(st.role);
@@ -118,7 +130,7 @@
       const sources = await api(base() + '/knowledge/sources');
       return `<div class="card"><strong>Add approved company knowledge</strong><p class="muted">Offer, ideal customer profile, brand voice, allowed claims, procedures. Nothing is used until you approve it.</p>
         <label>Title <input data-kb="title"></label>
-        <label>Category <select data-kb="category">${['offer', 'icp', 'brand', 'claims', 'procedures', 'pricing', 'other'].map((c) => `<option>${c}</option>`).join('')}</select></label>
+        <label>Category <select data-kb="category">${['offer', 'icp', 'brand', 'claims', 'pricing', 'procedures', 'policies', 'faq', 'audience', 'market', 'competitors', 'finance', 'compliance', 'contracts', 'suppliers', 'campaigns', 'other'].map((c) => `<option>${c}</option>`).join('')}</select></label>
         <label>Classification <select data-kb="classification"><option>internal</option><option>public</option><option>confidential</option><option>restricted</option></select></label>
         <label>Text <textarea data-kb="text" rows="5"></textarea></label><label>or URL <input data-kb="url" type="url"></label>
         <div class="row"><button class="btn primary" data-cos-addsrc="1">Add</button></div></div>
@@ -145,6 +157,30 @@
         <div class="row">${company.status === 'paused' ? '<button class="btn primary" data-cos-status="active">Resume company</button>' : '<button class="btn danger" data-cos-status="paused">Pause company</button>'}</div></div>`;
     },
   };
+
+  async function agentDetail(dept) {
+    const ag = await api(base() + '/agents');
+    const a = ag.agents.find((x) => x.department === dept);
+    if (!a) return '<p class="muted">Unknown department.</p>';
+    const r = a.latestReport;
+    const on = a.status !== 'off';
+    const list = (title, items, fn) => items && items.length ? `<h4>${title}</h4>` + items.map(fn).join('') : '';
+    const report = r ? `<div class="card"><strong>Latest report</strong> <span class="muted">${esc(ago(r.at))}</span><p>${esc(r.headline || '')}</p>
+        ${list('Skills used', r.skillsUsed, (x) => `<div><strong>${esc(x.skillId)}</strong> ${esc(x.work)}</div>`)}
+        ${list('Findings', r.findings, (x) => `<div><strong>${esc(x.title)}</strong> <span class="muted">${esc(x.detail)}</span></div>`)}
+        ${list('Proposals', r.proposals, (x) => `<div class="card"><strong>${esc(x.title)}</strong> ${badge(x.kind === 'crm_task' ? 'CRM task' : x.kind === 'claude_task' ? 'Claude task' : 'Draft')}<div style="white-space:pre-wrap">${esc(x.detail)}</div></div>`)}
+        ${list('Questions for you', r.questions, (x) => `<div>• ${esc(x)}</div>`)}
+        ${r.parkedClaudeTasks && r.parkedClaudeTasks.length ? `<p class="muted">${esc(r.note || '')}</p>` : ''}
+        <p class="muted">CRM tasks and Claude tasks wait in Approvals.</p></div>` : '<p class="muted">No report yet.</p>';
+    return `<div class="row"><button class="linklike" data-cos-agent="">← All departments</button></div>
+      <div class="card" style="border-left:6px solid ${DEPT[dept].color}"><strong>${esc(a.name)}</strong> ${agentBadge(a)}<p>${esc(a.mission)}</p>
+        ${a.blockers.length ? '<div class="bad">' + a.blockers.map(esc).join('<br>') + '</div>' : ''}
+        <div class="muted">${a.shifts} shifts so far${a.nextShiftAt ? ' · next shift ' + esc(new Date(a.nextShiftAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : ''}</div>
+        <label>Ask it to work on something now <input data-cos-focus placeholder="e.g. find 5 restaurants in Milan for catering, or plan a Black Friday offer"></label>
+        <div class="row"><button class="btn primary" data-cos-agentrun="${dept}">Work now</button><button class="btn" data-cos-agenton="${dept}|${on ? '0' : '1'}">${on ? 'Turn off' : 'Turn on'}</button>${a.lastShift ? `<button class="btn" data-cos-run="${a.lastShift.runId}">Last shift details</button>` : ''}</div></div>
+      ${report}
+      <details><summary>Skills (${a.skills.length})</summary>${a.skills.map((k) => `<div class="card"><strong>${esc(k.id)} · ${esc(k.name)}</strong><div class="muted">${esc(k.does)} → ${esc(k.delivers)}</div></div>`).join('')}</details>`;
+  }
 
   async function roleDetail(id) {
     const r = await api(base() + '/roles/' + id);
@@ -188,7 +224,15 @@
     const t = e.target.closest('button, [data-cos-role], [data-cos-run]') || e.target;
     const d = t.dataset || {};
     try {
-      if (d.cosSub) { st.sub = d.cosSub; st.role = null; st.run = null; return show('company'); }
+      if (d.cosSub) { st.sub = d.cosSub; st.role = null; st.run = null; st.agent = null; return show('company'); }
+      if (d.cosAgent !== undefined) { st.agent = d.cosAgent || null; st.sub = 'map'; return show('company'); }
+      if (d.cosAgentrun) {
+        const focus = val('[data-cos-focus]');
+        const r = await api(base() + '/agents/' + d.cosAgentrun + '/run', { method: 'POST', body: JSON.stringify(focus ? { focus } : {}) });
+        say('The agent is working on it. The report appears here when it is done.');
+        st.run = r.id; st.sub = 'history'; return show('company');
+      }
+      if (d.cosAgenton) { const [dep, on] = d.cosAgenton.split('|'); await api(base() + '/agents', { method: 'PUT', body: JSON.stringify({ department: dep, on: on === '1' }) }); return show('company'); }
       if (d.cosDept !== undefined) { st.dept = d.cosDept; st.sub = 'roles'; st.role = null; return show('company'); }
       if (d.cosRole !== undefined) { st.role = d.cosRole || null; return show('company'); }
       if (d.cosRun !== undefined) { st.run = d.cosRun || null; st.sub = 'history'; return show('company'); }
@@ -228,7 +272,9 @@
   });
   document.addEventListener('change', async (e) => {
     const t = e.target;
-    if (t.dataset.cosCompany !== undefined) { setCid(t.value); st.role = null; st.run = null; return show('company'); }
+    if (t.dataset.cosCompany !== undefined) { setCid(t.value); st.role = null; st.run = null; st.agent = null; return show('company'); }
+    if (t.dataset.cosAgentsOn !== undefined) { await api(base() + '/agents', { method: 'PUT', body: JSON.stringify({ enabled: t.checked }) }).catch((err) => say(err.message)); return show('company'); }
+    if (t.dataset.cosAgentsEvery !== undefined) { await api(base() + '/agents', { method: 'PUT', body: JSON.stringify({ everyHours: Number(t.value) }) }).catch((err) => say(err.message)); return show('company'); }
     if (t.dataset.cosDeptsel !== undefined) { st.dept = t.value; return show('company'); }
     if (t.dataset.cosQ !== undefined) { st.q = t.value; return show('company'); }
     if (t.dataset.cosKbq !== undefined) {
