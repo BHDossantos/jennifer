@@ -10,7 +10,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.bnbglobal.jennifer",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Jennifer uses the microphone only when you start a voice conversation."
+        "NSMicrophoneUsageDescription": "Jennifer uses the microphone only when you talk to her."
       }
     },
     "android": {
@@ -27,6 +27,12 @@
         "expo-notifications",
         {
           "defaultChannel": "jennifer"
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Jennifer uses the microphone only when you talk to her."
         }
       ]
     ],

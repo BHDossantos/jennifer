@@ -487,6 +487,16 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     if (j.chainedVoice.usesElevenLabs(s)) await j.costs.record('voice', 'voice_elevenlabs', (turn.reply.length / 1000) * (j.costs.pricing.elevenLabsPerKChars ?? 0.25));
     return { sessionId, transcript: turn.transcript, reply: turn.reply, audioBase64: turn.audio.toString('base64'), timingsMs: turn.timingsMs };
   });
+  /** Jennifer's voice for a typed reply (the iPhone app reads chat answers aloud). */
+  app.post('/v1/voice/speak', owner, async (req) => {
+    await j.costs.assertBudget('voice replies');
+    const b = z.object({ text: z.string().min(1).max(4000) }).parse(req.body);
+    const s = await voiceSettings();
+    const audio = await j.chainedVoice.speak(b.text, s.voiceId ?? 'marin', s.mode, s);
+    if (j.chainedVoice.usesElevenLabs(s)) await j.costs.record('voice', 'voice_elevenlabs', (b.text.length / 1000) * (j.costs.pricing.elevenLabsPerKChars ?? 0.25));
+    else await j.costs.record('voice', 'voice_tts', (b.text.length / 900) * j.costs.pricing.voicePerMinute);
+    return { audioBase64: audio.toString('base64'), provider: j.chainedVoice.usesElevenLabs(s) ? 'elevenlabs' : 'openai' };
+  });
   /** The app reports how long a live voice conversation lasted (cost ledger). */
   app.post('/v1/voice/usage', owner, async (req) => {
     const b = z.object({ seconds: z.number().min(0).max(4 * 3600) }).parse(req.body);

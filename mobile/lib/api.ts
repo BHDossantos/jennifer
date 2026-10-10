@@ -24,6 +24,17 @@ export class ApiError extends Error {
   }
 }
 
+/** Authorization header for calls that don't go through request() (voice uploads, the full Jennifer view). */
+export async function authHeader(): Promise<Record<string, string>> {
+  const t = await SecureStore.getItemAsync(KEY);
+  return t ? { authorization: 'Bearer ' + t } : {};
+}
+export const getToken = () => SecureStore.getItemAsync(KEY);
+export async function handleSignedOut() {
+  await clearToken();
+  onSignedOut?.();
+}
+
 async function request<T>(path: string, init: RequestInit = {}, auth = true): Promise<T> {
   const token = auth ? await SecureStore.getItemAsync(KEY) : null;
   let res: Response;
@@ -40,8 +51,7 @@ async function request<T>(path: string, init: RequestInit = {}, auth = true): Pr
     body = { message: text.slice(0, 200) };
   }
   if (res.status === 401 && auth) {
-    await clearToken();
-    onSignedOut?.();
+    await handleSignedOut();
     throw new ApiError(401, 'Please connect the app again.', 'signed_out');
   }
   if (!res.ok) throw new ApiError(res.status, body?.message || body?.error || 'HTTP ' + res.status, body?.error);
@@ -70,6 +80,8 @@ export const JenniferAPI = {
   missions: () => request<any>('/v1/missions'),
   runMission: (id: string) => post('/v1/missions/' + id + '/run', { mode: 'work', reason: 'Requested from the iPhone app' }),
   voice: () => request<any>('/v1/voice'),
+  /** Jennifer's voice for a typed reply. */
+  speak: (text: string) => post('/v1/voice/speak', { text }) as Promise<{ audioBase64: string; provider: string }>,
   notificationPrefs: () => request<any>('/v1/notifications/prefs'),
   memoryPending: () => request<any[]>('/v1/memory/pending'),
   activateMemory: (id: string) => post('/v1/memory/' + id + '/activate'),

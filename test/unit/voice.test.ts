@@ -129,6 +129,13 @@ describe('chained voice (push to talk)', () => {
     const tts = calls.find((c) => c.url.endsWith('/audio/speech'))!.body as { input: string; voice: string };
     expect(tts).toMatchObject({ input: 'Sure, I will remind you to call Bee-AHN-kee.', voice: 'coral' });
     expect(j.metrics.snapshot().latenciesMs.voice_chained_total_ms!.n).toBe(1);
+
+    // The iPhone app reads typed replies aloud in the same voice, with pronunciations.
+    const sp = await app.inject({ method: 'POST', url: '/v1/voice/speak', headers: { authorization: 'Bearer owner-token-0123456789' }, payload: { text: 'Call Bianchi at noon.' } });
+    expect(sp.statusCode).toBe(200);
+    expect(sp.json()).toMatchObject({ audioBase64: Buffer.from([1, 2, 3]).toString('base64'), provider: 'openai' });
+    expect((calls.filter((c) => c.url.endsWith('/audio/speech')).at(-1)!.body as { input: string }).input).toBe('Call Bee-AHN-kee at noon.');
+    expect((await app.inject({ method: 'POST', url: '/v1/voice/speak', payload: { text: 'hi' } })).statusCode).toBe(401);
   });
 });
 
