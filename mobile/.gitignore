@@ -7,3 +7,8 @@ dist/
 *.p12
 *.mobileprovision
 service-account*.json
+
+# Generated native projects and local CI build outputs
+android/
+ios/
+build/

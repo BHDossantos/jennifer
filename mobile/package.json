@@ -8,7 +8,11 @@
     "ios": "expo start --ios",
     "android": "expo start --android",
     "typecheck": "tsc --noEmit",
-    "test": "tsc --noEmit"
+    "test": "npm run typecheck && npm run test:unit",
+    "test:unit": "node --test test/*.test.mjs",
+    "check:config": "node scripts/check-mobile-config.mjs",
+    "export:ios": "expo export --platform ios --output-dir dist/ios",
+    "export:android": "expo export --platform android --output-dir dist/android"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

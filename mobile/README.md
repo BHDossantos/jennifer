@@ -44,3 +44,45 @@ The server address is baked into every EAS build (`EXPO_PUBLIC_JENNIFER_API_URL`
 - Two copies of `expo-asset` and `expo-font` were installed (SDK 54's and v57, pulled in through `expo-audio` and `@expo/vector-icons`); the native build linked the wrong ones. They are now pinned to SDK 54 versions.
 - The production build had no server address, and there was no sign-in, so every request failed.
 - The Today screen rendered an object as text, which crashes a release build with no visible error. An app-wide error screen now replaces any crash.
+
+## Validation before a release
+
+From this directory, run `npm ci`, `npm run check:config`, `npm test`,
+`npm run export:ios`, and `npm run export:android`.
+
+GitHub **Jennifer Mobile CI** now runs on mobile pull requests, manual dispatch,
+and mobile changes to the actual default branch. It has no store credentials:
+
+1. Locked dependency installation, configuration checks, typechecking, and mocked
+   API regression tests (pairing on both platforms, revoked sessions, offline and
+   malformed responses, guarded action approval).
+2. Separate iOS and Android JavaScript bundle exports.
+3. An Android debug APK compile and an unsigned iOS simulator app compile, with
+   seven-day artifacts tied to the commit SHA.
+
+The APK uses Android's generated debug signing identity, not the Play upload key.
+Both native artifacts are development builds and need Metro for runtime testing;
+run `npm start` from this directory on the machine used for testing. Simulator
+builds cannot be installed on a physical iPhone. Exported JavaScript bundles are
+not IPA/AAB artifacts. None of these steps submits to EAS, TestFlight, or Play.
+
+The API tests mock native modules and network: they do not establish real-device
+behavior or call the live service. Native compilation is also not a UI test.
+Before a paid/public release, record the commit/build ID and test pairing,
+logout/revocation, offline/retry, blank-screen/crash recovery, navigation/back,
+microphone denial and re-enable, voice interruption, notification permission,
+and action approval/cancel on both iOS and Android devices.
+
+### Remaining release evidence
+
+- Replace default/generated branding with approved app icons and launch assets.
+- Verify signed IPA/AAB, current Apple/Google credentials, TestFlight/Play receipt,
+  store metadata/privacy forms and screenshots for the exact release commit.
+- Verify push delivery, microphone/audio runtime and supported device versions.
+- Confirm pricing, in-app purchase/subscription implementation and restore flow
+  if monetization is required. The existing assistant client is not evidence of
+  a completed purchase flow.
+
+The existing manual **Jennifer Mobile Release** workflow remains the separate
+signed-build/store-testing path. It now runs the same checks first. Running it
+may consume EAS build quota; no release or store submission is triggered by CI.
