@@ -16,8 +16,8 @@ export function validateMobileConfig(app, eas) {
     if (!profile) { errors.push(`Missing ${name} build profile.`); continue; }
     try {
       const url = new URL(profile.env?.EXPO_PUBLIC_JENNIFER_API_URL);
-      if (url.protocol !== 'https:' || url.username || url.password || ['localhost', '127.0.0.1', '::1'].includes(url.hostname)) throw new Error();
-    } catch { errors.push(`${name} must configure a public HTTPS Jennifer API URL without credentials.`); }
+      if (url.protocol !== 'https:' || url.username || url.password || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw new Error();
+    } catch { errors.push(`${name} must configure an HTTPS Jennifer API URL without credentials or a common local hostname.`); }
   }
   return errors;
 }

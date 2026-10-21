@@ -83,6 +83,18 @@ and action approval/cancel on both iOS and Android devices.
   if monetization is required. The existing assistant client is not evidence of
   a completed purchase flow.
 
-The existing manual **Jennifer Mobile Release** workflow remains the separate
-signed-build/store-testing path. It now runs the same checks first. Running it
-may consume EAS build quota; no release or store submission is triggered by CI.
+The manual GitHub **Jennifer Mobile Release** workflow is one signed-build/store-testing
+path and now runs the same checks first. Running it may consume EAS build quota.
+The new GitHub validation jobs themselves never submit or publish a build.
+
+**Merge gate: an existing Expo-hosted production workflow is also present.**
+`mobile/.eas/workflows/create-production-builds.yml` watches mobile changes on
+`claude/new-session-ruep5f` and `mobile/jennifer-expo-foundation`; it creates
+production Android/iOS builds and submits iOS to TestFlight if the integration
+is enabled. The isolated audit branch is not a matching trigger. Do not merge
+mobile changes into those branches until the owner has reviewed this release
+gate. This audit does not modify or disable that production workflow.
+
+The API URL validator checks HTTPS syntax, absence of embedded credentials and
+common local hostnames only. It does not resolve DNS or establish public
+reachability, API health, authentication or network security.

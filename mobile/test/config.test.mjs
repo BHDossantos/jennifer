@@ -16,7 +16,7 @@ test('missing EAS project linkage is rejected', () => {
   const invalid = structuredClone(app); delete invalid.expo.extra.eas.projectId;
   assert.match(validateMobileConfig(invalid, eas).join(), /project ID/);
 });
-for (const url of ['', 'http://example.test', 'https://localhost', 'https://user:password@example.test']) {
+for (const url of ['', 'http://example.test', 'https://localhost', 'https://[::1]', 'https://user:password@example.test']) {
   test(`invalid production API URL is rejected: ${url || '(missing)'}`, () => {
     const invalid = structuredClone(eas); invalid.build.production.env.EXPO_PUBLIC_JENNIFER_API_URL = url;
     assert.match(validateMobileConfig(app, invalid).join(), /production/);
