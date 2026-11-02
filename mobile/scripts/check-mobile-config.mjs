@@ -9,6 +9,7 @@ export function validateMobileConfig(app, eas) {
   if (!identifier.test(expo.ios?.bundleIdentifier ?? '')) errors.push('A valid iOS bundle identifier is required.');
   if (!identifier.test(expo.android?.package ?? '')) errors.push('A valid Android package is required.');
   if (!/^\d+\.\d+\.\d+$/.test(expo.version ?? '')) errors.push('A semantic app version is required.');
+  if (!expo.icon?.endsWith('.png')) errors.push('A PNG app icon is required.');
   if (!expo.scheme) errors.push('A deep-link scheme is required.');
   if (!/^[\da-f]{8}-([\da-f]{4}-){3}[\da-f]{12}$/i.test(expo.extra?.eas?.projectId ?? '')) errors.push('The existing EAS project ID must be configured.');
   for (const name of ['development', 'preview', 'production']) {

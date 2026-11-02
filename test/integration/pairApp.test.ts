@@ -41,8 +41,19 @@ describe('pairing the TestFlight iPhone app with a one-time code', () => {
     // The app session cannot do sensitive things without a passkey step-up.
     expect((await app.inject({ method: 'POST', url: '/v1/auth/pair/start', headers: appSession, payload: {} })).json().error).toBe('approval.step_up_required');
 
-    // Revoking the app's device ends its session.
-    await identity.revokeDevice('bruno', ok.json().deviceId, 'bruno');
+    // Native registration is bound to the authenticated device, never a caller-supplied ID.
+    const push = { token: 'ExpoPushToken[test-device]' };
+    expect((await app.inject({ method: 'POST', url: '/v1/push/native/subscribe', headers: boot, payload: push })).statusCode).toBeGreaterThanOrEqual(400);
+    expect((await app.inject({ method: 'POST', url: '/v1/push/native/subscribe', headers: appSession, payload: { token: 'invalid' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/v1/push/native/subscribe', headers: appSession, payload: push })).statusCode).toBe(200);
+    expect((await j.notifications.nativeSubscriptions())[0]?.deviceId).toBe(ok.json().deviceId);
+    expect((await app.inject({ method: 'POST', url: '/v1/push/native/unsubscribe', headers: appSession })).statusCode).toBe(200);
+    expect(await j.notifications.nativeSubscriptions()).toEqual([]);
+    await app.inject({ method: 'POST', url: '/v1/push/native/subscribe', headers: appSession, payload: push });
+
+    // Revoking the app's device ends its session and clears native registration.
+    expect((await app.inject({ method: 'DELETE', url: `/v1/devices/${ok.json().deviceId}`, headers: boot })).statusCode).toBe(200);
+    expect(await j.notifications.nativeSubscriptions()).toEqual([]);
     expect((await app.inject({ method: 'GET', url: '/v1/today', headers: appSession })).statusCode).toBe(401);
 
     // Guessing is capped.
