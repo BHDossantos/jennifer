@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createDurableJennifer } from '../../src/app.js';
 import { buildServer } from '../../src/api/server.js';
 import { pgliteDb } from '../../src/db/db.js';
@@ -60,5 +60,42 @@ describe('pairing the TestFlight iPhone app with a one-time code', () => {
     for (let i = 0; i < 9; i++) await finish('AAAA-AAAA');
     expect((await finish('AAAA-AAAA')).statusCode).toBe(429);
     await db.close();
+  });
+});
+
+
+describe('native app logout', () => {
+  it.each([false, true])('revokes the session before push cleanup (cleanup fails: %s)', async (cleanupFails) => {
+    const db = await pgliteDb();
+    const clock = new FakeClock('2026-11-02T12:00:00Z');
+    const j = await createDurableJennifer({ db, clock, config: { ownerId: 'bruno' } });
+    const identity = new IdentityService(db, clock, j.audit, RP);
+    const app = buildServer(j, { identity, tokens: {} });
+    try {
+      const phone = new SoftAuthenticator(RP.rpId, RP.origins[0]!);
+      const options = await identity.registrationOptions('bruno', 'bruno');
+      const enrolled = await identity.verifyRegistration(options.handle, phone.register(options.options) as never, { platform: 'web' });
+      const { token } = await identity.pairDevice('bruno', { platform: 'ios' }, enrolled.deviceId);
+      const headers = { authorization: `Bearer ${token}` };
+      expect((await app.inject({ method: 'POST', url: '/v1/push/native/subscribe', headers, payload: { token: 'ExpoPushToken[logout-test]' } })).statusCode).toBe(200);
+      const originalCleanup = j.notifications.unsubscribeNative.bind(j.notifications);
+      let alreadyRevoked = false;
+      const cleanup = vi.spyOn(j.notifications, 'unsubscribeNative').mockImplementation(async deviceId => {
+        alreadyRevoked = (await identity.authenticate(token)) === undefined;
+        if (cleanupFails) throw new Error('Simulated notification storage failure');
+        await originalCleanup(deviceId);
+      });
+      const response = await app.inject({ method: 'POST', url: '/v1/auth/logout', headers });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ ok: true });
+      expect(cleanup).toHaveBeenCalledOnce();
+      expect(alreadyRevoked).toBe(true);
+      expect(await identity.authenticate(token)).toBeUndefined();
+      expect((await app.inject({ method: 'GET', url: '/v1/today', headers })).statusCode).toBe(401);
+      if (!cleanupFails) expect(await j.notifications.nativeSubscriptions()).toEqual([]);
+    } finally {
+      await app.close();
+      await db.close();
+    }
   });
 });

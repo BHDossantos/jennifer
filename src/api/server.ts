@@ -389,8 +389,14 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
   app.post('/v1/auth/logout', owner, async (req) => {
     const session = requireSession(req);
-    await j.notifications.unsubscribeNative(session.deviceId);
+    // Revoke the bearer session before best-effort notification housekeeping.
+    // A storage failure here must never leave a locally discarded token valid.
     await requireIdentity().logout(session);
+    try {
+      await j.notifications.unsubscribeNative(session.deviceId);
+    } catch {
+      req.log.warn('Native push cleanup failed after session revocation');
+    }
     return { ok: true };
   });
   app.get('/v1/devices', owner, async () => requireIdentity().devices(j.ownerId));

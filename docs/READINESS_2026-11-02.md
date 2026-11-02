@@ -38,7 +38,7 @@ neither. The production trigger was left unchanged.
 Local locked installs, backend/mobile type checks, 28 mobile tests, both native
 Hermes bundle exports and Expo prebuild passed. Generated iOS icon is 1024px RGB
 (no alpha channel). Targeted push/API tests passed 10/10. Workflow YAML and Bash
-syntax checks passed. The final full backend suite passed 555/555 tests across 33 files. Tests mock Expo delivery;
+syntax checks passed. The initial readiness head `478818a` passed the full backend suite: 555/555 tests across 33 files. Tests mock Expo delivery;
 no real device is contacted. Native simulator/debug build evidence from PR #7
 belongs to its prior commit and must not be represented as current signing proof.
 
@@ -62,3 +62,32 @@ Before public store release, verify signing/build numbers, support/privacy URLs,
 privacy/Data Safety declarations and any required deletion request path, reviewer
 pairing access, screenshots and distribution eligibility for this owner-bound
 assistant. Those store decisions and any signed build/submission require approval.
+
+
+## Logout review fix and release sequencing
+
+Logout now revokes the server bearer session before attempting native push cleanup.
+A cleanup exception emits a generic warning and does not undo or prevent logout;
+actual session-revocation failures still fail the request. Regression tests use
+real database-backed sessions and verify that the old bearer token is rejected
+both when cleanup succeeds and when notification storage throws. Follow-up
+TypeScript and all 12 targeted pairing/logout/native/web-push tests passed;
+`git diff --check` passed. Push cleanup is
+best effort: a failed cleanup can leave a registration until expiry or a later
+successful cleanup; the warning must not be treated as proof of unsubscription.
+
+Release the backend first, only after explicit deployment approval. Verify the
+new authenticated `/v1/push/native/subscribe` and `/unsubscribe` endpoints,
+registration/receipt persistence, and logout with a disposable paired device.
+Then approve the mobile release trigger/TestFlight build and test against that
+backend. Merging this PR can trigger EAS/TestFlight before a manually deployed
+backend is updated, so merge timing alone is not a safe release gate. Prepare a
+backend-only release first, or separately approve gating the EAS workflow before
+merging mobile changes; neither action was performed here.
+
+If the new mobile app reaches an older backend first, registration receives 404
+and Settings shows “Notifications unavailable”; it does not claim successful
+registration. Core existing API calls remain unchanged, but native notifications
+are not ready. Avoid distributing the mobile build until the endpoint smoke tests
+pass. A backend rollback after mobile rollout likewise leaves registration
+unavailable; coordinate rollback and tester communication.
