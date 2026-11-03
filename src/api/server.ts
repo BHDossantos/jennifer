@@ -17,7 +17,7 @@ import { DASHBOARD_HTML } from './dashboard.js';
 import { MANIFEST, SERVICE_WORKER, appIcon, RESET_HTML, HELLO_HTML } from './pwa.js';
 import { FEMALE_VOICE_CANDIDATES } from '../voice/realtime.js';
 import { MISSION_PRESETS, MissionInputSchema } from '../missions/missions.js';
-import { PrefsSchema, PushSubscriptionSchema } from '../notify/push.js';
+import { PrefsSchema, PushSubscriptionSchema, NativePushTokenSchema } from '../notify/push.js';
 import { DEFAULT_VOICE, GREETINGS, type VoiceSettings } from '../voice/persona.js';
 import { PINNED_VOICES } from '../voice/elevenlabs.js';
 import type { IdentityService, Session } from '../identity/identity.js';
@@ -388,14 +388,24 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     return { stepUpAt: await requireIdentity().verifyStepUp(requireSession(req), b.handle, b.response) };
   });
   app.post('/v1/auth/logout', owner, async (req) => {
-    await requireIdentity().logout(requireSession(req));
+    const session = requireSession(req);
+    // Revoke the bearer session before best-effort notification housekeeping.
+    // A storage failure here must never leave a locally discarded token valid.
+    await requireIdentity().logout(session);
+    try {
+      await j.notifications.unsubscribeNative(session.deviceId);
+    } catch {
+      req.log.warn('Native push cleanup failed after session revocation');
+    }
     return { ok: true };
   });
   app.get('/v1/devices', owner, async () => requireIdentity().devices(j.ownerId));
   app.delete('/v1/devices/:id', owner, async (req) => {
     // Sessions need a fresh passkey; the bootstrap token stays a break-glass path for a stolen phone.
     if (req.session) requireSensitive(req);
-    await requireIdentity().revokeDevice(j.ownerId, z.object({ id: z.string() }).parse(req.params).id, j.ownerId);
+    const deviceId = z.object({ id: z.string() }).parse(req.params).id;
+    await requireIdentity().revokeDevice(j.ownerId, deviceId, j.ownerId);
+    await j.notifications.unsubscribeNative(deviceId);
     return { revoked: true };
   });
 
@@ -535,6 +545,22 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
     } catch (e) {
       return { ok: false, error: e instanceof JenniferError ? e.message : 'Tool failed' };
     }
+  });
+
+  j.notifications.setNativeDeviceValidator(async (deviceId) => {
+    if (!opts.identity) return false;
+    const devices = await opts.identity.devices(j.ownerId);
+    return devices.some(d => d.id === deviceId && !d.revoked_at);
+  });
+  app.post('/v1/push/native/subscribe', owner, async (req) => {
+    const session = requireSession(req);
+    const { token } = z.object({ token: NativePushTokenSchema }).parse(req.body);
+    await j.notifications.subscribeNative(token, session.deviceId, new Date(session.expiresAt));
+    return { subscribed: true };
+  });
+  app.post('/v1/push/native/unsubscribe', owner, async (req) => {
+    await j.notifications.unsubscribeNative(requireSession(req).deviceId);
+    return { unsubscribed: true };
   });
 
   // ---- Push notifications ----------------------------------------------------

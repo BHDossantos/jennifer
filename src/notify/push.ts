@@ -1,7 +1,7 @@
 import webpush from 'web-push';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
-import type { Clock } from '../core/util.js';
+import { KeyedMutex, type Clock } from '../core/util.js';
 import type { SettingsStore } from '../core/settings.js';
 import type { AuditLog } from '../audit/audit.js';
 
@@ -14,6 +14,8 @@ export const PushSubscriptionSchema = z.object({
   endpoint: z.string().url(),
   keys: z.object({ p256dh: z.string(), auth: z.string() }),
 });
+export const NativePushTokenSchema = z.string().regex(/^(ExpoPushToken|ExponentPushToken)\[[A-Za-z0-9_-]+\]$/).max(256);
+type NativeSub = { token: string; deviceId: string; expiresAt: string };
 export type PushSub = z.infer<typeof PushSubscriptionSchema> & { label?: string; createdAt: string };
 
 export const PrefsSchema = z.object({
@@ -52,6 +54,12 @@ const DEDUP_MS = 6 * 3600_000;
 export class NotificationService {
   private sentKeys = new Map<string, number>();
   private held: Notice[] = [];
+  private nativeMutex = new KeyedMutex();
+  private nativeDeviceActive: (id: string) => Promise<boolean> = async () => false;
+
+  setNativeDeviceValidator(validate: (id: string) => Promise<boolean>) {
+    this.nativeDeviceActive = validate;
+  }
   private vapid?: { publicKey: string; privateKey: string };
 
   constructor(
@@ -105,6 +113,92 @@ export class NotificationService {
     await this.d.settings.set('push_subscriptions', (await this.subscriptions()).filter((s) => s.endpoint !== endpoint));
   }
 
+  async nativeSubscriptions(): Promise<NativeSub[]> {
+    const subs = await this.d.settings.get<NativeSub[]>('native_push_subscriptions') ?? [];
+    return subs.filter(s => new Date(s.expiresAt).getTime() > this.d.clock.now().getTime());
+  }
+
+  async subscribeNative(token: string, deviceId: string, expiresAt: Date): Promise<void> {
+    NativePushTokenSchema.parse(token);
+    await this.nativeMutex.run('subscriptions', async () => {
+      const subs = (await this.nativeSubscriptions()).filter(s => s.deviceId !== deviceId && s.token !== token);
+      subs.push({ token, deviceId, expiresAt: expiresAt.toISOString() });
+      await this.d.settings.set('native_push_subscriptions', subs);
+    });
+  }
+
+  async unsubscribeNative(deviceId: string): Promise<void> {
+    await this.removeNative(s => s.deviceId === deviceId);
+  }
+
+  private async removeNative(remove: (sub: NativeSub) => boolean): Promise<void> {
+    await this.nativeMutex.run('subscriptions', async () => {
+      await this.d.settings.set('native_push_subscriptions', (await this.nativeSubscriptions()).filter(s => !remove(s)));
+    });
+  }
+
+  private async expoRequest(path: string, body: unknown): Promise<any> {
+    const accessToken = process.env.JENNIFER_EXPO_ACCESS_TOKEN;
+    const response = await fetch(`https://exp.host/--/api/v2/push/${path}`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}) },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error('Native notification service unavailable');
+    return response.json();
+  }
+
+  /** Called by the existing minute timer; tickets are not proof of device delivery. */
+  async checkNativeReceipts(): Promise<void> {
+    const pending = await this.d.settings.get<Array<{ id: string; token: string; at: number }>>('native_push_receipts') ?? [];
+    const now = this.d.clock.now().getTime();
+    const ready = pending.filter(r => now - r.at >= 15 * 60_000).slice(0, 1000);
+    if (!ready.length) return;
+    const result = await this.expoRequest('getReceipts', { ids: ready.map(r => r.id) });
+    const done = new Set<string>();
+    for (const receipt of ready) {
+      const status = result.data?.[receipt.id];
+      if (status?.details?.error === 'DeviceNotRegistered') {
+        // A rotated token must not be removed by a receipt for the old token.
+        await this.removeNative(s => s.token === receipt.token);
+      }
+      if (status || now - receipt.at > 24 * 3600_000) done.add(receipt.id);
+    }
+    // Preserve tickets added while the receipt request was in flight.
+    await this.nativeMutex.run('receipts', async () => {
+      const latest = await this.d.settings.get<typeof pending>('native_push_receipts') ?? [];
+      await this.d.settings.set('native_push_receipts', latest.filter(r => !done.has(r.id)));
+    });
+  }
+
+  private async deliverNative(n: Notice, p: NotificationPrefs): Promise<number> {
+    let accepted = 0;
+    for (const sub of await this.nativeSubscriptions()) {
+      try {
+        if (!(await this.nativeDeviceActive(sub.deviceId))) {
+          await this.unsubscribeNative(sub.deviceId);
+          continue;
+        }
+        const result = await this.expoRequest('send', {
+          to: sub.token, title: n.title, body: p.showDetails && n.detail ? n.detail : n.body,
+          data: { url: n.url }, sound: 'default', channelId: 'jennifer',
+          ttl: n.urgent ? 3600 : 6 * 3600, priority: n.urgent ? 'high' : 'normal',
+        });
+        const ticket = result.data;
+        if (ticket?.status === 'ok' && typeof ticket.id === 'string') {
+          await this.nativeMutex.run('receipts', async () => {
+            const pending = await this.d.settings.get<Array<{ id: string; token: string; at: number }>>('native_push_receipts') ?? [];
+            pending.push({ id: ticket.id, token: sub.token, at: this.d.clock.now().getTime() });
+            await this.d.settings.set('native_push_receipts', pending.slice(-10000));
+          });
+          accepted++;
+        } else if (ticket?.details?.error === 'DeviceNotRegistered') {
+          await this.removeNative(s => s.token === sub.token);
+        }
+      } catch { /* Preserve the subscription for transient failures; urgent fallback still runs. */ }
+    }
+    return accepted;
+  }
+
   isQuiet(p: NotificationPrefs, at = this.d.clock.now()): boolean {
     const local = DateTime.fromJSDate(at, { zone: p.timeZone });
     const mins = local.hour * 60 + local.minute;
@@ -126,7 +220,9 @@ export class NotificationService {
       this.held.push(n);
       return 'held';
     }
-    return this.deliver(n, p);
+    const result = await this.deliver(n, p);
+    if (result === 'no_devices') this.sentKeys.delete(n.dedupKey);
+    return result;
   }
 
   /** After quiet hours: one summary instead of a burst. */
@@ -152,12 +248,13 @@ export class NotificationService {
         return 'no_devices';
       }
     };
-    if (subs.length === 0) return fallback();
+    const nativeAccepted = await this.deliverNative(n, p);
+    if (subs.length === 0) return nativeAccepted ? 'sent' : fallback();
     const keys = await this.keys();
     const payload = JSON.stringify({ title: n.title, body: p.showDetails && n.detail ? n.detail : n.body, url: n.url, tag: n.dedupKey });
     const send: PushSender = this.d.send ?? ((sub, data, opts) => webpush.sendNotification(sub, data, opts));
     const dead: string[] = [];
-    let delivered = 0;
+    let delivered = nativeAccepted;
     for (const sub of subs) {
       try {
         await send(sub, payload, { TTL: n.urgent ? 3600 : 6 * 3600, urgency: n.urgent ? 'high' : 'normal', vapidDetails: { subject: this.d.subject, ...keys } });
