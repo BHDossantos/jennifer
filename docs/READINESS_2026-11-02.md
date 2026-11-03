@@ -91,3 +91,25 @@ registration. Core existing API calls remain unchanged, but native notifications
 are not ready. Avoid distributing the mobile build until the endpoint smoke tests
 pass. A backend rollback after mobile rollout likewise leaves registration
 unavailable; coordinate rollback and tester communication.
+
+## November 3 dependency follow-up
+
+Upgraded the mobile dependency set incrementally through Expo SDKs 55, 56, 57,
+and 58 (final Expo 58.0.22 / React Native 0.88.1 / React 19.3.0), running all 28
+mobile tests at each step. Updated ScrollView and WebView refs for their current
+TypeScript APIs. The final candidate passes typechecking, all 28 tests, config
+validation, both iOS/Android bundle exports, and clean native project generation.
+Node requirements now match the supported Expo toolchain. Native compilation
+must pass on this new commit before release; previous green native runs do not
+validate this SDK upgrade.
+
+The mobile audit has no high/critical findings. Eleven moderate findings remain
+in Expo's glob/minimatch tooling dependency chains; npm proposes an incompatible
+SDK downgrade, which was not applied. Expo Doctor passed 18/20 checks; its remote
+schema and React Native Directory checks were blocked by network/DNS failures.
+Offline package alignment passed against the installed SDK metadata. Physical
+device smoke tests (pairing, audio, notifications, WebView) remain required.
+
+Render and production operations are deferred at the owner's request. EAS is
+not authenticated in the execution environment. No release build, submission,
+credential change, security setting change, or legal acceptance was performed.
