@@ -113,3 +113,9 @@ device smoke tests (pairing, audio, notifications, WebView) remain required.
 Render and production operations are deferred at the owner's request. EAS is
 not authenticated in the execution environment. No release build, submission,
 credential change, security setting change, or legal acceptance was performed.
+
+The first SDK 58 native CI run exposed the old macOS 15 runner's default Xcode
+16.4 / Swift 6.1, while ExpoModulesJSI requires Swift tools 6.2. The simulator job
+now uses macOS 26, whose default Xcode 26 toolchain supports that requirement.
+The failed run is 41606658157; a successful rerun on the updated commit remains
+the release gate. Backend tests/audit and Docker image CI passed on d190511.
