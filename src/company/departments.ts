@@ -142,7 +142,7 @@ const SHIFT_SCHEMA = obj({
   notesForNextShift: str,
 });
 
-/** Agent settings per company (profile.departmentAgents). On by default: every 6 hours, day and night. */
+/** Scheduled shifts require explicit opt-in; upgrades must not start paid model work. */
 export interface AgentSettings {
   enabled: boolean;
   everyHours: number;
@@ -151,7 +151,7 @@ export interface AgentSettings {
 export function agentSettings(profile: Record<string, unknown>): AgentSettings {
   const p = (profile.departmentAgents ?? {}) as Partial<AgentSettings>;
   const every = typeof p.everyHours === 'number' && [1, 2, 3, 4, 6, 8, 12, 24].includes(p.everyHours) ? p.everyHours : 6;
-  return { enabled: p.enabled !== false, everyHours: every, off: Array.isArray(p.off) ? (p.off.filter((d) => DEPARTMENTS.includes(d)) as Department[]) : [] };
+  return { enabled: p.enabled === true, everyHours: every, off: Array.isArray(p.off) ? (p.off.filter((d) => DEPARTMENTS.includes(d)) as Department[]) : [] };
 }
 
 /** Which shift slot a moment belongs to (shifts start on the hour, every N hours UTC). */
