@@ -4,7 +4,7 @@ import { FakeClock } from '../../src/core/util.js';
 import { ScriptedModel, type ModelRequest } from '../../src/core/model.js';
 import { FakeEmailProvider } from '../../src/connectors/fakeEmail.js';
 import { buildServer } from '../../src/api/server.js';
-import { DEPARTMENTS, DEPARTMENT_ROLES, skillsOf } from '../../src/company/departments.js';
+import { DEPARTMENTS, DEPARTMENT_ROLES, skillsOf, agentSettings } from '../../src/company/departments.js';
 import { ROLE_CATALOG } from '../../src/company/catalog.js';
 
 const OWNER = { authorization: 'Bearer owner-token-0123456789' };
@@ -57,6 +57,13 @@ async function teach(j: ReturnType<typeof setup>['j']) {
 const settleAll = async (j: ReturnType<typeof setup>['j'], ids: string[]) => Promise.all(ids.map((id) => j.company.settle('restaurant', id)));
 
 describe('department agents: one per department, on duty around the clock', () => {
+  it('requires boolean opt-in and preserves explicit schedule settings', () => {
+    expect(agentSettings({}).enabled).toBe(false);
+    expect(agentSettings({ departmentAgents: { enabled: 'true' } }).enabled).toBe(false);
+    expect(agentSettings({ departmentAgents: { enabled: false } }).enabled).toBe(false);
+    expect(agentSettings({ departmentAgents: { enabled: true, everyHours: 12, off: ['sales'] } }))
+      .toEqual({ enabled: true, everyHours: 12, off: ['sales'] });
+  });
   it('every department agent has its department’s skills and a runnable role', () => {
     expect(DEPARTMENT_ROLES.map((r) => r.agentId)).toEqual(DEPARTMENTS.map((d) => `DA-${d}`));
     for (const d of DEPARTMENTS) {
@@ -73,10 +80,13 @@ describe('department agents: one per department, on duty around the clock', () =
     expect((await j.company.tickSchedules()).length).toBe(0);
     const before = (await app.inject({ method: 'GET', url: '/v1/companies/restaurant/agents', headers: OWNER })).json();
     expect(before.agents).toHaveLength(7);
-    expect(before.agents[0]).toMatchObject({ department: 'sales', name: 'Sales agent', status: 'needs_setup' });
+    expect(before.agents[0]).toMatchObject({ department: 'sales', name: 'Sales agent', status: 'off' });
     expect(before.agents[0].skills.length).toBeGreaterThan(10);
 
     await teach(j);
+    // Profiles with approved knowledge still require explicit scheduling opt-in.
+    expect(await j.company.tickSchedules()).toHaveLength(0);
+    await app.inject({ method: 'PUT', url: '/v1/companies/restaurant/agents', headers: OWNER, payload: { enabled: true } });
     const first = await j.company.tickSchedules();
     expect(first).toHaveLength(7); // only the restaurant has approved knowledge
     expect(await j.company.tickSchedules()).toHaveLength(0); // same shift slot: no duplicates
@@ -125,7 +135,8 @@ describe('department agents: one per department, on duty around the clock', () =
 
     const view = (await app.inject({ method: 'GET', url: '/v1/companies/restaurant/agents', headers: OWNER })).json();
     const sales = view.agents.find((a: { department: string }) => a.department === 'sales');
-    expect(sales).toMatchObject({ status: 'on_duty', shifts: 1 });
+    // A one-off manual shift does not opt the company into recurring work.
+    expect(sales).toMatchObject({ status: 'off', shifts: 1 });
     expect(sales.latestReport.headline).toContain('catering leads');
 
     // The next shift starts from its own notes.
