@@ -1,13 +1,23 @@
 name: Jennifer Mobile CI
 on:
+  workflow_dispatch:
   pull_request:
-    paths: ['mobile/**']
+    paths: ['mobile/**', '.github/workflows/mobile-ci.yml', '.github/workflows/mobile-release.yml']
   push:
-    branches: ['main', 'mobile/**']
-    paths: ['mobile/**']
+    branches: ['main', 'claude/new-session-ruep5f', 'mobile/**']
+    paths: ['mobile/**', '.github/workflows/mobile-ci.yml', '.github/workflows/mobile-release.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mobile-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  CI: '1'
+  EXPO_NO_TELEMETRY: '1'
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: mobile
@@ -15,9 +25,79 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: mobile/package-lock.json
-      - run: npm install
-      - run: npm run typecheck
-      - run: npx expo export --platform ios
+      - run: npm ci
+      - run: npm run check:config
+      - run: npm test
+      - name: Export both native JavaScript bundles
+        run: npm run export:ios && npm run export:android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-bundles-${{ github.sha }}
+          path: mobile/dist
+          if-no-files-found: error
+          retention-days: 7
+  android-debug:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci
+      - name: Generate Android project without cloud signing
+        run: npx --no-install expo prebuild --platform android --no-install
+      - name: Compile debug APK
+        run: cd android && ./gradlew --no-daemon assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-${{ github.sha }}
+          path: mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
+  ios-simulator:
+    needs: validate
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - name: Generate iOS project
+        run: npx --no-install expo prebuild --platform ios --no-install
+      - name: Install native pods
+        run: cd ios && pod install
+      - name: Compile simulator app without signing
+        run: >-
+          xcodebuild -workspace ios/Jennifer.xcworkspace -scheme Jennifer
+          -configuration Debug -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath build/ios CODE_SIGNING_ALLOWED=NO build
+      - name: Archive simulator app
+        run: ditto -c -k --keepParent build/ios/Build/Products/Debug-iphonesimulator/Jennifer.app build/jennifer-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-${{ github.sha }}
+          path: mobile/build/jennifer-simulator.zip
+          if-no-files-found: error
+          retention-days: 7
