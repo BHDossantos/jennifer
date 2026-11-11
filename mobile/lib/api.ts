@@ -82,6 +82,8 @@ export const JenniferAPI = {
   voice: () => request<any>('/v1/voice'),
   /** Jennifer's voice for a typed reply. */
   speak: (text: string) => post('/v1/voice/speak', { text }) as Promise<{ audioBase64: string; provider: string }>,
+  registerPush: (token: string) => post('/v1/push/native/subscribe', { token }),
+  unregisterPush: () => post('/v1/push/native/unsubscribe'),
   notificationPrefs: () => request<any>('/v1/notifications/prefs'),
   memoryPending: () => request<any[]>('/v1/memory/pending'),
   activateMemory: (id: string) => post('/v1/memory/' + id + '/activate'),

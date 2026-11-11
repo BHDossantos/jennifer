@@ -12,7 +12,7 @@ import { C } from '@/components/ui';
 export default function Everything() {
   const [token, setToken] = useState<string | null | undefined>(undefined);
   const [failed, setFailed] = useState('');
-  const web = useRef<WebView>(null);
+  const web = useRef<WebView<object>>(null);
   useEffect(() => {
     getToken().then(setToken);
   }, []);
@@ -27,7 +27,7 @@ export default function Everything() {
           <Pressable style={s.btn} onPress={() => { setFailed(''); web.current?.reload(); }}><Text style={s.btnText}>Try again</Text></Pressable>
         </View>
       ) : (
-        <WebView
+        <WebView<object>
           ref={web}
           source={{ uri: API_BASE + '/' }}
           injectedJavaScriptBeforeContentLoaded={inject}

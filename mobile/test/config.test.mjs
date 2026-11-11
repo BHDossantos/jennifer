@@ -26,3 +26,12 @@ test('missing profile is rejected', () => {
   const invalid = structuredClone(eas); delete invalid.build.preview;
   assert.match(validateMobileConfig(app, invalid).join(), /preview/);
 });
+test('missing app icon is rejected', () => {
+  const invalid = structuredClone(app); delete invalid.expo.icon;
+  assert.match(validateMobileConfig(invalid, eas).join(), /icon/);
+});
+test('app icon is a 1024px PNG', () => {
+  const icon = readFileSync(new URL('../assets/icon.png', import.meta.url));
+  assert.equal(icon.subarray(1, 4).toString(), 'PNG');
+  assert.equal(icon.readUInt32BE(16), 1024); assert.equal(icon.readUInt32BE(20), 1024);
+});
