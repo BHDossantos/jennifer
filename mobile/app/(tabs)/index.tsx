@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, type ScrollViewInstance, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
 import { useAudioRecorder, useAudioRecorderState } from 'expo-audio';
@@ -25,7 +25,7 @@ export default function Home() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [msgs, setMsgs] = useState<Msg[]>([{ role: 'jennifer', text: "Hi Bruno. Tap the circle and talk to me, or type below." }]);
   const sessionId = useRef<string | undefined>(undefined);
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
 
   const recorder = useAudioRecorder(RECORDING as never);
   const rec = useAudioRecorderState(recorder, 150);
