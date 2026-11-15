@@ -24,39 +24,66 @@ export const listenMode = () => setAudioModeAsync({ allowsRecording: true, plays
 /** Loudspeaker, even with the silent switch on. */
 export const speakMode = () => setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true, shouldRouteThroughEarpiece: false });
 
-let current: AudioPlayer | null = null;
+type Playback = { player: AudioPlayer | null; stopped: boolean; finish?: () => void };
+let current: Playback | null = null;
+let playbackId = 0;
 
-export function stopSpeaking() {
-  try {
-    current?.pause();
-    current?.remove();
-  } catch {}
-  current = null;
+function dispose(playback: Playback) {
+  playback.stopped = true;
+  playback.finish?.();
+  // A pause failure must not prevent native-player disposal.
+  try { playback.player?.pause(); } catch {}
+  try { playback.player?.remove(); } catch {}
+  playback.player = null;
+  if (current === playback) current = null;
 }
 
-/** Play Jennifer's reply (mp3 as base64) and resolve when she has finished speaking. */
+export function stopSpeaking() {
+  if (current) dispose(current);
+}
+
+/** Play a reply, releasing native resources and cached audio on every exit. */
 export async function playBase64(audioBase64: string): Promise<void> {
   stopSpeaking();
-  await speakMode();
-  const uri = `${FS.cacheDirectory}jennifer-${Date.now()}.mp3`;
-  await FS.writeAsStringAsync(uri, audioBase64, { encoding: FS.EncodingType.Base64 });
-  const player = createAudioPlayer({ uri });
-  current = player;
-  await new Promise<void>((resolve) => {
-    const done = () => {
-      sub.remove();
-      clearTimeout(guard);
-      resolve();
-    };
-    const sub = player.addListener('playbackStatusUpdate', (st) => {
-      if (st.didJustFinish) done();
+  const playback: Playback = { player: null, stopped: false };
+  current = playback;
+  const uri = `${FS.cacheDirectory}jennifer-${Date.now()}-${++playbackId}.mp3`;
+  try {
+    await speakMode();
+    if (playback.stopped) return;
+    await FS.writeAsStringAsync(uri, audioBase64, { encoding: FS.EncodingType.Base64 });
+    if (playback.stopped) return;
+    const player = createAudioPlayer({ uri });
+    playback.player = player;
+    await new Promise<void>((resolve, reject) => {
+      let sub: { remove: () => void } | undefined;
+      let guard: ReturnType<typeof setTimeout> | undefined;
+      let finished = false;
+      const done = () => {
+        if (finished) return;
+        finished = true;
+        try { sub?.remove(); } catch {}
+        clearTimeout(guard);
+        resolve();
+      };
+      playback.finish = done;
+      try {
+        sub = player.addListener('playbackStatusUpdate', (st) => {
+          if (st.didJustFinish) done();
+        });
+        guard = setTimeout(done, 180_000);
+        player.play();
+      } catch (error) {
+        try { sub?.remove(); } catch {}
+        clearTimeout(guard);
+        finished = true;
+        reject(error);
+      }
     });
-    // Never hang the conversation on a missed event: at most 3 minutes per reply.
-    const guard = setTimeout(done, 180_000);
-    player.play();
-  });
-  if (current === player) stopSpeaking();
-  FS.deleteAsync(uri, { idempotent: true }).catch(() => {});
+  } finally {
+    dispose(playback);
+    await FS.deleteAsync(uri, { idempotent: true }).catch(() => {});
+  }
 }
 
 export type VoiceTurn = { sessionId?: string; transcript: string; reply: string; audioBase64: string };
@@ -73,8 +100,9 @@ export async function sendTurn(fileUri: string, sessionId?: string, language = '
     });
   } catch {
     throw new ApiError(0, 'Jennifer is unreachable. Check your connection and try again.');
+  } finally {
+    await FS.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
   }
-  FS.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
   let body: any = {};
   try {
     body = JSON.parse(r.body || '{}');
