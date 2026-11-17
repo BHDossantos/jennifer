@@ -33,6 +33,10 @@ describe('API (§15)', () => {
     expect(stale.statusCode).toBe(409);
     const ok = await app.inject({ method: 'POST', url: `/v1/actions/${a.id}/approve`, headers: auth, payload: { revision: a.revision, payloadHash: a.payloadHash } });
     expect(ok.json().state).toBe('provider_accepted');
+    const detail = await app.inject({ method: 'GET', url: `/v1/actions/${a.id}`, headers: auth });
+    expect(detail.json().recovery.title).toBe('Accepted by provider');
+    expect(detail.json().recovery.nextStep).toContain('does not prove');
+
     expect(h.gmail.sent).toHaveLength(1);
   });
 
