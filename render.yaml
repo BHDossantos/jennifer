@@ -7,7 +7,7 @@ services:
     plan: starter
     region: frankfurt
     healthCheckPath: /health
-    autoDeploy: false            # deploy deliberately; migrations run on boot
+    autoDeploy: true             # every push to the main branch goes live (migrations run on boot)
     envVars:
       - key: JENNIFER_ENV
         value: production
