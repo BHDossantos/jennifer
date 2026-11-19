@@ -1,3 +1,4 @@
+import { matchesTask } from './task-filter.js';
 /**
  * Minimal authenticated dashboard (spec §14 IA: Today, Conversations, Tasks,
  * Calls, Memory, Connections, Settings). The production client is React
@@ -194,7 +195,14 @@ const views = {
     const list = await api('/v1/conversations');
     return list.map((c) => \`<div class="card" role="button" tabindex="0" data-conv="\${esc(c.id)}"><strong data-conv="\${esc(c.id)}">\${esc(c.subject || '(no subject)')}</strong> <span class="muted">\${esc(c.space)}\${c.pendingActions ? ' · ' + c.pendingActions + ' waiting' : ''}</span><div class="muted" data-conv="\${esc(c.id)}">\${esc((c.lastFrom && (c.lastFrom.displayName || c.lastFrom.address)) || '')}: \${esc(c.lastPreview || '')}</div></div>\`).join('') || '<p class="muted">No conversations yet. Connect Gmail in Connections.</p>';
   },
-  async tasks() { return (await api('/v1/actions')).map(card).join('') || '<p class="muted">No tasks.</p>'; },
+  async tasks() {
+    const actions = await api('/v1/actions');
+    if (!actions.length) return '<p class="muted">No tasks.</p>';
+    return '<label>Search tasks <input id="task-search" type="search" placeholder="Recipient, subject or message"></label>' +
+      '<label>Task status <select id="task-state"><option value="">All statuses</option>' + Object.entries(STATE).map(([value, label]) => '<option value="' + esc(value) + '">' + esc(label) + '</option>').join('') + '</select></label>' +
+      '<p id="task-count" role="status">' + actions.length + ' tasks</p>' +
+      actions.map(a => '<div data-task-state="' + esc(a.state) + '">' + card(a) + '</div>').join('');
+  },
   async connections() {
     const g = await api('/v1/connectors/gmail').catch(() => ({}));
     const gmailCard = \`<div class="card"><strong>Your Gmail</strong> <span class="muted">\${esc(g.address ? g.address + ' · ' + (g.worker?.state || '') : 'not connected')}</span>
@@ -357,6 +365,21 @@ const views = {
 };
 let current = 'today';
 let convOpen = null;
+const matchesTask = ${matchesTask.toString()};
+function filterTaskCards() {
+  const search = $('#task-search'); const state = $('#task-state');
+  if (!search || !state) return;
+  const cards = [...document.querySelectorAll('[data-task-state]')];
+  let visible = 0;
+  for (const card of cards) {
+    card.hidden = !matchesTask(card.textContent || '', card.dataset.taskState, search.value, state.value);
+    if (!card.hidden) visible++;
+  }
+  $('#task-count').textContent = visible + ' of ' + cards.length + ' tasks' + (visible ? '' : ' — try another search or choose All statuses.');
+}
+document.addEventListener('input', e => { if (e.target.id === 'task-search') filterTaskCards(); });
+document.addEventListener('change', e => { if (e.target.id === 'task-state') filterTaskCards(); });
+
 async function show(tab) {
   if (!views[tab]) tab = 'today';
   current = tab;
