@@ -1,3 +1,4 @@
+import { actionRecovery } from '../actions/recovery.js';
 import { configWarnings } from '../core/config.js';
 import { readFileSync } from 'node:fs';
 import { newId } from '../core/util.js';
@@ -1101,6 +1102,7 @@ function approvalCard(a: ReturnType<Jennifer['actions']['get']>) {
       channel: a.channel,
       state: a.state,
       reason: a.stateReason,
+      recovery: actionRecovery(a),
       revision: a.revision,
       payloadHash: a.payloadHash,
       sendingAccount: 'Jennifer',
@@ -1118,6 +1120,7 @@ function approvalCard(a: ReturnType<Jennifer['actions']['get']>) {
     channel: a.channel,
     state: a.state,
     reason: a.stateReason,
+    recovery: actionRecovery(a),
     revision: a.revision,
     payloadHash: a.payloadHash,
     sendingAccount: a.accountId,

@@ -149,12 +149,14 @@ const api = async (path, opts = {}, retried = false) => {
 };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 const LABEL = { send_message: 'Email', create_event: 'New calendar event', modify_event: 'Calendar change', delegate_task: 'Task for Claude' };
-const STATE = { awaiting_decision: 'waiting for you', provider_accepted: 'sent', confirmed: 'done', ready: 'about to run', canceled: 'canceled', failed: 'failed', unknown: 'checking whether it went out' };
+const STATE = { awaiting_decision: 'waiting for you', provider_accepted: 'accepted by provider', confirmed: 'done', ready: 'about to run', canceled: 'canceled', failed: 'failed', unknown: 'checking whether it went out' };
 const card = (a) => \`<div class="card"><strong>\${esc(LABEL[a.type] || a.type)}</strong> <span class="muted">· \${esc(STATE[a.state] || a.state)}</span>
   <div class="muted">From \${esc(a.sendingAccount)} to \${esc(a.recipients.join(', '))}</div>
   \${a.subject ? '<div>' + esc(a.subject) + '</div>' : ''}<pre>\${esc(a.body)}</pre>
   \${a.attachmentIds.length ? '<div class="muted">Attachments: ' + esc(a.attachmentIds.join(', ')) + '</div>' : ''}
   <div class="muted">\${esc((a.consequences || []).join(' · '))}</div>
+  \${a.reason ? '<p class="muted">Reason: ' + esc(a.reason) + '</p>' : ''}
+  \${a.recovery ? '<div class="muted"><strong>' + esc(a.recovery.title) + '</strong><p>' + esc(a.recovery.nextStep) + '</p><p>Attempts: ' + esc(a.recovery.attempts) + (a.recovery.nextAttemptAt ? ' · Next attempt: ' + esc(new Date(a.recovery.nextAttemptAt).toLocaleString()) : '') + '</p></div>' : ''}
   \${a.state === 'awaiting_decision' ? \`<div class="row"><button class="btn primary" data-approve="\${a.id}" data-rev="\${a.revision}" data-hash="\${a.payloadHash}">Approve and send</button><button class="btn" data-edit="\${a.id}">Edit</button>\${a.channel === 'sms' && a.recipients.length === 1 ? \`<a class="btn" href="sms:\${esc(a.recipients[0])}&body=\${encodeURIComponent(a.body || '')}" data-handoff="\${a.id}">Send from my iPhone</a>\` : ''}
     <select style="width:auto" data-why="\${a.id}" aria-label="Why decline"><option value="rejected">Decline</option><option value="wrong_fact">Decline: wrong fact</option><option value="wrong_recipient">Decline: wrong recipient</option><option value="poor_tone">Decline: wrong tone</option><option value="incomplete_action">Decline: incomplete</option></select><button class="btn" data-cancel="\${a.id}">Decline</button></div>
     <div id="edit-\${a.id}" hidden><label>Subject <input id="es-\${a.id}" value="\${esc(a.subject || '')}"></label><label>Message <textarea id="eb-\${a.id}" rows="8">\${esc(a.body || '')}</textarea></label>
