@@ -33,6 +33,7 @@ import { CompanyOS } from './company/engine.js';
 import { dailyBrief as companyDailyBrief, replyToNextAction, prospectToDraft, type WorkflowDeps } from './company/workflows.js';
 import { weeklyContent } from './company/marketing.js';
 import { departmentShift } from './company/departments.js';
+import { businessAgent, businessTask, taskFocus } from './company/businessAgents.js';
 import { TwilioSms } from './connectors/sms/twilio.js';
 import { BlueBubblesIMessage } from './connectors/imessage/bluebubbles.js';
 import { WhatsAppCloud } from './connectors/whatsapp/cloud.js';
@@ -577,7 +578,7 @@ export function createJennifer(opts: JenniferOptions = {}) {
   };
   tools.register({
     name: 'company_overview',
-    description: "Bruno's companies (insurance, technology, music, restaurant, United Youth Orchestra): pending approvals, drafts to review, CRM changes, and recent workflow runs with their status.",
+    description: "Bruno's companies (insurance, B&B Global Services, music, SavoryMind, United Youth Orchestra, LearnNoelia, the Foundation, Lovera): pending approvals, drafts to review, CRM changes, and recent workflow runs with their status.",
     input: z.object({ companyId: z.enum(COMPANY_IDS).optional() }),
     requiredScopes: ['company:read'],
     sideEffect: 'read',
@@ -610,6 +611,25 @@ export function createJennifer(opts: JenniferOptions = {}) {
     retry: { maxAttempts: 1, retryOn: 'never' },
     run: async (i) => {
       const r = await company.createRun(ownerId, i.companyId, i.workflowId, i.input);
+      const done = await company.settle(i.companyId, r.id, 110_000).catch(() => undefined);
+      return done ? { runId: r.id, status: done.status, summary: done.summary, blockers: done.blockers } : { runId: r.id, status: 'running', note: 'Still working; results will appear in the Company tab.' };
+    },
+  });
+  tools.register({
+    name: 'business_agent_task',
+    description:
+      "Have one business's lead agent work one of its tasks now (e.g. SavoryMind 'prospects', Bruno D 'pitches', Foundation 'benefit'). Without taskId it lists the business's tasks. Each task runs as a department shift; drafts, CRM changes and Claude tasks wait for Bruno's OK.",
+    input: z.object({ companyId: z.enum(COMPANY_IDS), taskId: z.string().max(40).optional() }),
+    requiredScopes: ['company:run'],
+    sideEffect: 'draft',
+    timeoutMs: 120_000,
+    rateLimitPerMinute: 6,
+    retry: { maxAttempts: 1, retryOn: 'never' },
+    run: async (i) => {
+      const agent = businessAgent(i.companyId);
+      const task = i.taskId ? businessTask(i.companyId, i.taskId) : undefined;
+      if (!task) return { agent: agent.name, mission: agent.mission, tasks: agent.tasks.map((t) => ({ id: t.id, name: t.name, cadence: t.cadence, approval: t.approval })) };
+      const r = await company.createRun(ownerId, i.companyId, 'WF-05', { department: task.department, focus: taskFocus(agent, task), businessTask: task.id });
       const done = await company.settle(i.companyId, r.id, 110_000).catch(() => undefined);
       return done ? { runId: r.id, status: done.status, summary: done.summary, blockers: done.blockers } : { runId: r.id, status: 'running', note: 'Still working; results will appear in the Company tab.' };
     },

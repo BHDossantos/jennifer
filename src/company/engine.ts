@@ -30,11 +30,11 @@ export const DEFAULT_COMPANIES: Company[] = [
   { id: 'nonprofit', name: 'United Youth Orchestra', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
   { id: 'learnnoelia', name: 'LearnNoelia', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
   { id: 'foundation', name: 'Esposito Dos Santos Foundation', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
-  { id: 'dating', name: 'Dating app', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
+  { id: 'dating', name: 'Lovera', timezone: 'Europe/Rome', locale: 'en', status: 'active', profile: {} },
 ];
 
 /** Earlier default names, renamed in place once (an owner-chosen name is never overwritten). */
-const RENAMED: Record<string, string> = { 'Technology ventures': 'B&B Global Services', 'Restaurant venture': 'SavoryMind' };
+const RENAMED: Record<string, string> = { 'Technology ventures': 'B&B Global Services', 'Restaurant venture': 'SavoryMind', 'Dating app': 'Lovera' };
 
 export interface StepContext {
   run: Run;

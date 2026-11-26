@@ -411,7 +411,7 @@ export function buildServer(j: Jennifer, opts: ServerOptions) {
   });
 
   // ---- Voice -----------------------------------------------------------------
-  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'search_ai_history', 'web_search', 'ask_ai', 'company_overview', 'start_company_workflow', 'ask_claude_to_do', 'workforce_overview', 'workforce_search_crm', 'workforce_pending', 'message_someone', 'confirm_send', 'save_contact', 'stop_handling', 'get_debrief'];
+  const VOICE_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'get_calendar', 'find_free_slots', 'propose_event', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'search_ai_history', 'web_search', 'ask_ai', 'company_overview', 'start_company_workflow', 'business_agent_task', 'ask_claude_to_do', 'workforce_overview', 'workforce_search_crm', 'workforce_pending', 'message_someone', 'confirm_send', 'save_contact', 'stop_handling', 'get_debrief'];
   const voiceCtx = { ownerId: j.ownerId, role: 'voice', allowedTools: new Set(VOICE_TOOLS), scopes: new Set(['brief:read', 'actions:read', 'messages:read', 'memory:read', 'messages:propose', 'calendar:read', 'calendar:propose', 'history:read', 'web:read', 'company:read', 'company:run', 'delegate:propose', 'workforce:read', 'messages:start', 'debrief:read']) };
   type StoredVoice = VoiceSettings & { mode: 'private' | 'business' };
   const voiceSettings = async (): Promise<StoredVoice> => {
