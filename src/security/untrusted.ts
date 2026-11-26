@@ -43,19 +43,12 @@ export function detectInjection(text: string): string[] {
 
 /** Remove markup that could hide instructions; keep visible text as evidence. */
 export function sanitizeForModel(text: string): string {
-  // Strip until nothing changes, so removing one tag cannot join the text
-  // around it into a new tag (for example "<scr<b></b>ipt>").
-  let out = text;
-  let prev: string;
-  do {
-    prev = out;
-    out = out
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, '')
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, '')
-      .replace(/<[^>]+>/g, ' ');
-  } while (out !== prev);
-  return out
-    // A "<" left over (from an unclosed tag) can't start markup once escaped.
+  return text
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    // Escape any "<" left over, so text that removing a tag joined back
+    // together (for example "<scr<b></b>ipt>") or an unclosed tag can't start markup.
     .replace(/</g, '&lt;')
     .replace(/[\u200B-\u200F\u2060\uFEFF]/g, '')
     .replace(/\s+\n/g, '\n')
