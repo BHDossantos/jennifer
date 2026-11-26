@@ -1,5 +1,5 @@
 # Jennifer API + worker. Small, non-root, reproducible (locked manifest).
-FROM node:22-slim AS build
+FROM node:25-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -8,7 +8,7 @@ COPY src ./src
 COPY test ./test
 RUN npx tsc -p tsconfig.json
 
-FROM node:22-slim
+FROM node:25-slim
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json ./
