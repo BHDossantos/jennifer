@@ -33,7 +33,7 @@ jobs:
       - run: npm test
       - name: Export both native JavaScript bundles
         run: npm run export:ios && npm run export:android
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mobile-bundles-${{ github.sha }}
           path: mobile/dist
@@ -62,7 +62,7 @@ jobs:
         run: npx --no-install expo prebuild --platform android --no-install
       - name: Compile debug APK
         run: cd android && ./gradlew --no-daemon assembleDebug
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android-debug-${{ github.sha }}
           path: mobile/android/app/build/outputs/apk/debug/*.apk
@@ -95,7 +95,7 @@ jobs:
           -derivedDataPath build/ios CODE_SIGNING_ALLOWED=NO build
       - name: Archive simulator app
         run: ditto -c -k --keepParent build/ios/Build/Products/Debug-iphonesimulator/Jennifer.app build/jennifer-simulator.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ios-simulator-${{ github.sha }}
           path: mobile/build/jennifer-simulator.zip
