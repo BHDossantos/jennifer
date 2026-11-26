@@ -43,10 +43,18 @@ export function detectInjection(text: string): string[] {
 
 /** Remove markup that could hide instructions; keep visible text as evidence. */
 export function sanitizeForModel(text: string): string {
-  return text
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
+  // Strip until nothing changes, so removing one tag cannot join the text
+  // around it into a new tag (for example "<scr<b></b>ipt>").
+  let out = text;
+  let prev: string;
+  do {
+    prev = out;
+    out = out
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, '')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, '')
+      .replace(/<[^>]+>/g, ' ');
+  } while (out !== prev);
+  return out
     .replace(/[\u200B-\u200F\u2060\uFEFF]/g, '')
     .replace(/\s+\n/g, '\n')
     .trim();
