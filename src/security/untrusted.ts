@@ -43,14 +43,43 @@ export function detectInjection(text: string): string[] {
 
 /** Remove markup that could hide instructions; keep visible text as evidence. */
 export function sanitizeForModel(text: string): string {
-  return text
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, '')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    // Escape any "<" left over, so text that removing a tag joined back
-    // together (for example "<scr<b></b>ipt>") or an unclosed tag can't start markup.
-    .replace(/</g, '&lt;')
-    .replace(/[\u200B-\u200F\u2060\uFEFF]/g, '')
+  // Walk the text instead of chaining regex replacements: script and style
+  // blocks are dropped, other tags become a space, and any "<" left over
+  // (an unclosed tag, or one that removing a tag joined back together) is
+  // escaped so it can't start markup.
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    const lt = text.indexOf('<', i);
+    if (lt === -1) {
+      out += text.slice(i);
+      break;
+    }
+    out += text.slice(i, lt);
+    const gt = text.indexOf('>', lt + 1);
+    if (gt === -1 || gt === lt + 1) {
+      // "<" with no tag after it stays as text and is escaped below.
+      out += '<';
+      i = lt + 1;
+      continue;
+    }
+    const block = /^(script|style)\b/i.exec(text.slice(lt + 1, gt));
+    if (block) {
+      const closing = new RegExp(`</${block[1]}[^>]*>`, 'gi');
+      closing.lastIndex = gt + 1;
+      const end = closing.exec(text);
+      if (end) {
+        i = end.index + end[0].length;
+        continue;
+      }
+    }
+    out += ' ';
+    i = gt + 1;
+  }
+  return out
+    .split('<')
+    .join('&lt;')
+    .replace(/[​-‏⁠﻿]/g, '')
     .replace(/\s+\n/g, '\n')
     .trim();
 }
