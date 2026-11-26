@@ -1,4 +1,4 @@
-import webpush from 'web-push';
+import * as webpush from 'web-push';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 import { KeyedMutex, type Clock } from '../core/util.js';
