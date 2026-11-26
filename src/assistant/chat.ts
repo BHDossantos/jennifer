@@ -13,7 +13,7 @@ import { personaInstructions, DEFAULT_VOICE, type DeliveryMode } from '../voice/
  * Bruno states are remembered only when the memory quotes his own words;
  * anything else (e.g. inspired by an email) waits for review.
  */
-const CHAT_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'get_calendar', 'find_free_slots', 'propose_event', 'search_ai_history', 'read_ai_conversation', 'web_search', 'read_web_page', 'ask_ai', 'company_overview', 'start_company_workflow', 'ask_claude_to_do', 'workforce_overview', 'workforce_search_crm', 'workforce_pending', 'message_someone', 'confirm_send', 'save_contact', 'stop_handling', 'get_debrief'];
+const CHAT_TOOLS = ['get_today_brief', 'list_pending_decisions', 'list_missions', 'search_messages', 'read_thread', 'retrieve_memory', 'create_draft', 'get_calendar', 'find_free_slots', 'propose_event', 'search_ai_history', 'read_ai_conversation', 'web_search', 'read_web_page', 'ask_ai', 'company_overview', 'start_company_workflow', 'business_agent_task', 'ask_claude_to_do', 'workforce_overview', 'workforce_search_crm', 'workforce_pending', 'message_someone', 'confirm_send', 'save_contact', 'stop_handling', 'get_debrief'];
 const MAX_HISTORY = 40;
 
 interface ChatSession {

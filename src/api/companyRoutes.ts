@@ -9,6 +9,7 @@ import { CompanyOS } from '../company/engine.js';
 import { DEPARTMENTS, DEPARTMENT_AGENTS, agentSettings, shiftSlot, skillsOf } from '../company/departments.js';
 import type { Department } from '../company/catalog.js';
 import type { CompanyId } from '../company/model.js';
+import { BUSINESS_AGENTS, businessAgent, businessTask, charterView, taskFocus } from '../company/businessAgents.js';
 
 /**
  * Company OS API (blueprint §13). Every route derives the actor from the
@@ -150,6 +151,33 @@ export function registerCompanyRoutes(app: FastifyInstance, j: Jennifer, owner: 
     const { dept } = z.object({ dept: z.enum(DEPARTMENTS as [Department, ...Department[]]) }).parse(req.params);
     const b = z.object({ focus: z.string().max(500).optional() }).parse(req.body ?? {});
     const run = await j.company.createRun(actor(req), cid, 'WF-05', { department: dept, ...(b.focus ? { focus: b.focus } : {}) });
+    return reply.code(202).send(run);
+  });
+
+  // ---- Business agents (one lead agent per business; tasks run as department shifts) ----
+  const charterOf = async (cid: CompanyId) => {
+    const runs = (await j.companyRepo.runs(cid, 300)).filter((r) => r.workflowId === 'WF-05' && typeof r.input.businessTask === 'string');
+    const view = charterView(businessAgent(cid));
+    return {
+      ...view,
+      tasks: view.tasks.map((t) => {
+        const last = runs.find((r) => r.input.businessTask === t.id);
+        return { ...t, lastRun: last ? { runId: last.id, status: last.status, summary: last.summary, blockers: last.blockers, at: last.createdAt } : null };
+      }),
+    };
+  };
+  app.get('/v1/business-agents', owner, async (req) => {
+    const mine = new Set((await j.company.companiesFor(actor(req))).map((c) => c.id));
+    return Object.values(BUSINESS_AGENTS).filter((a) => mine.has(a.companyId)).map(charterView);
+  });
+  app.get('/v1/companies/:cid/business-agent', owner, async (req) => charterOf(await cidOf(req)));
+  /** Run one business task now: a department shift with the task's focus. Results wait for Bruno. */
+  app.post('/v1/companies/:cid/business-agent/tasks/:task/run', owner, async (req, reply) => {
+    const cid = await cidOf(req, 'run');
+    const { task } = z.object({ task: z.string().max(40) }).parse(req.params);
+    const t = businessTask(cid, task);
+    if (!t) throw new JenniferError('business_task.not_found', 'Not found');
+    const run = await j.company.createRun(actor(req), cid, 'WF-05', { department: t.department, focus: taskFocus(businessAgent(cid), t), businessTask: t.id });
     return reply.code(202).send(run);
   });
 

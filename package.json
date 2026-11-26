@@ -43,7 +43,7 @@
     "@types/smtp-server": "^3.5.13",
     "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.2",
-    "hoodiecrow-imap": "^3.3.1",
+    "hoodiecrow-imap": "^2.1.0",
     "smtp-server": "^3.19.16",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

@@ -181,7 +181,7 @@ export function departmentShift(d: WorkflowDeps & { canDelegate?: () => boolean;
     name: 'Department agent shift',
     description: "A department's always-on agent works a shift: reads the company brain, CRM and recent work, uses its department skills and proposes tasks. Nothing is sent without your OK.",
     roles: DEPARTMENTS.map(agentId),
-    input: z.object({ department: z.enum(DEPARTMENTS as [Department, ...Department[]]), focus: z.string().max(500).optional() }),
+    input: z.object({ department: z.enum(DEPARTMENTS as [Department, ...Department[]]), focus: z.string().max(500).optional(), businessTask: z.string().max(40).optional() }),
     defaultBudgetEur: 0.3,
     steps: [
       {

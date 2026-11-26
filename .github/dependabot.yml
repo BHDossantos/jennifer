@@ -11,6 +11,12 @@ updates:
     groups:
       npm-minor-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # hoodiecrow-imap 3 answers X-GM-THRID itself, so the fake test inbox no
+      # longer behaves like the Gmail threading the tests assert. Test-only
+      # dependency; lift once test/integration/gmail.test.ts is adapted.
+      - dependency-name: "hoodiecrow-imap"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: "/mobile"
     schedule:
