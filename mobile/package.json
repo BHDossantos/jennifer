@@ -36,8 +36,8 @@
     "react-native-webview": "14.0.1"
   },
   "devDependencies": {
-    "@types/react": "~19.3.0",
-    "typescript": "~5.9.2"
+    "@types/react": "~19.1.10",
+    "typescript": "~7.0.2"
   },
   "overrides": {
     "react-dom": "19.3.1"
