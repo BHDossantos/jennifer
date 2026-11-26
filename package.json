@@ -17,7 +17,7 @@
     "simulate": "tsx src/simulator/demo.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.131.0",
+    "@anthropic-ai/sdk": "^1.12.0",
     "@simplewebauthn/server": "^14.0.3",
     "fast-xml-parser": "^5.12.0",
     "fastify": "^5.12.5",
