@@ -55,6 +55,8 @@ export function sanitizeForModel(text: string): string {
       .replace(/<[^>]+>/g, ' ');
   } while (out !== prev);
   return out
+    // A "<" left over (from an unclosed tag) can't start markup once escaped.
+    .replace(/</g, '&lt;')
     .replace(/[\u200B-\u200F\u2060\uFEFF]/g, '')
     .replace(/\s+\n/g, '\n')
     .trim();

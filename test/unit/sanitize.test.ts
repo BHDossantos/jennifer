@@ -12,5 +12,6 @@ describe('sanitizeForModel', () => {
     for (const input of ['<scr<b></b>ipt>alert(1)</script>', '<<b>script>bad</script>', '<sc<script>x</script>ript>y']) {
       expect(sanitizeForModel(input)).not.toMatch(/<\s*(script|style)/i);
     }
+    expect(sanitizeForModel('<script unclosed')).toBe('&lt;script unclosed');
   });
 });
